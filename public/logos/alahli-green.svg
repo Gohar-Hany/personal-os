@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <linearGradient id="nbeDarkGreenBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006A4E"/>
+      <stop offset="100%" stop-color="#004633"/>
+    </linearGradient>
+    <linearGradient id="nbeOrange" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFA000"/>
+      <stop offset="40%" stop-color="#FF7900"/>
+      <stop offset="100%" stop-color="#EB5A00"/>
+    </linearGradient>
+  </defs>
+
+  <!-- NBE Official Green Card Background -->
+  <rect width="400" height="400" rx="54" fill="url(#nbeDarkGreenBg)"/>
+
+  <!-- Centered Official NBE Emblem Structure -->
+  <g transform="translate(100, 48)">
+    
+    <!-- 1. White / Light Green Outer Arch (Inverted U Frame) -->
+    <path d="M 0 45 
+             C 0 15, 15 0, 45 0 
+             L 155 0 
+             C 185 0, 200 15, 200 45 
+             L 200 240 
+             L 162 240 
+             L 162 48 
+             C 162 38, 154 30, 144 30 
+             L 56 30 
+             C 46 30, 38 38, 38 48 
+             L 38 240 
+             L 0 240 Z" 
+          fill="#FFFFFF"/>
+
+    <!-- 2. Orange Semi-Circle / Dome (Inside Top) -->
+    <!-- Flat top at y=55, rounded bottom arc dipping to y=135 -->
+    <path d="M 52 55 
+             L 148 55 
+             C 148 115, 52 115, 52 55 Z" 
+          fill="url(#nbeOrange)"/>
+
+    <!-- 3. Three Orange Vertical Pillars (Inside Bottom) -->
+    <!-- Left Pillar -->
+    <rect x="47" y="150" width="26" height="110" rx="13" fill="url(#nbeOrange)"/>
+    <!-- Center Pillar -->
+    <rect x="87" y="150" width="26" height="110" rx="13" fill="url(#nbeOrange)"/>
+    <!-- Right Pillar -->
+    <rect x="127" y="150" width="26" height="110" rx="13" fill="url(#nbeOrange)"/>
+  </g>
+
+  <!-- Bilingual / Arabic Official Typography -->
+  <text x="200" y="348" font-family="'Cairo', 'Segoe UI', Tahoma, sans-serif" font-weight="900" font-size="28" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.5">البنك الأهلي المصري</text>
+  <text x="200" y="376" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-weight="800" font-size="14" fill="#FFA000" text-anchor="middle" letter-spacing="1.5">NATIONAL BANK OF EGYPT</text>
+</svg>

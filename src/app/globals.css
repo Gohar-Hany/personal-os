@@ -1,0 +1,190 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── Design tokens ─────────────────────────────────────────
+   Light is the base; .dark (set by next-themes) overrides.
+   Every component uses these semantic names — never raw hex. */
+:root {
+  color-scheme: light;
+  --background: #f6f6f4;
+  --foreground: #1b1b19;
+  --card: #ffffff;
+  --muted: #efefec;
+  --muted-foreground: #6b6a65;
+  --subtle: #f6f6f4;
+  --border: #e4e3de;
+  --border-strong: #d4d3cd;
+  --ring: #5b5fd6;
+
+  --primary: #5458d0;
+  --primary-hover: #4448bd;
+  --primary-foreground: #ffffff;
+  --primary-soft: #ecedfc;
+
+  --success: #15803d;
+  --success-soft: #e7f6ec;
+  --warning: #b45309;
+  --warning-soft: #fdf3e3;
+  --danger: #c62f2f;
+  --danger-soft: #fdecec;
+  --info: #1d6fd1;
+  --info-soft: #e8f1fd;
+
+  --overlay: rgb(20 20 18 / 0.45);
+  --card-highlight: 0;
+  --shadow-color: 30 30 25;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #111113;
+  --foreground: #ececee;
+  --card: #19191c;
+  --muted: #232327;
+  --muted-foreground: #9c9ca5;
+  --subtle: #151517;
+  --border: #2a2a2f;
+  --border-strong: #38383e;
+  --ring: #8387f0;
+
+  --primary: #6f73ea;
+  --primary-hover: #8084f0;
+  --primary-foreground: #ffffff;
+  --primary-soft: #23244a;
+
+  --success: #3fcf7f;
+  --success-soft: #15291e;
+  --warning: #f3b13f;
+  --warning-soft: #2d2412;
+  --danger: #f37272;
+  --danger-soft: #331a1a;
+  --info: #62a8f5;
+  --info-soft: #152437;
+
+  --overlay: rgb(0 0 0 / 0.6);
+  --card-highlight: 0.04;
+  --shadow-color: 0 0 0;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-overlay: var(--overlay);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, "Segoe UI", "Noto Sans Arabic", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --shadow-card: 0 1px 2px rgb(var(--shadow-color) / 0.05), 0 0 0 1px rgb(var(--shadow-color) / 0.01), inset 0 1px 0 rgb(255 255 255 / var(--card-highlight));
+  --shadow-pop: 0 12px 32px -8px rgb(var(--shadow-color) / 0.25), 0 2px 6px rgb(var(--shadow-color) / 0.08);
+
+  --animate-fade-in: fade-in 140ms ease-out;
+  --animate-scale-in: scale-in 160ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  --animate-slide-up: slide-up 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  --animate-slide-left: slide-left 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  --animate-pop: pop 260ms ease-out;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  /* Only scale here — centering uses Tailwind's separate `translate` property. */
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slide-up {
+    from { transform: translateY(100%); }
+    to { transform: translateY(0); }
+  }
+  @keyframes slide-left {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes pop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.18); }
+    100% { transform: scale(1); }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: var(--background);
+    background-image: radial-gradient(60rem 30rem at 50% -12rem, color-mix(in oklab, var(--primary) 9%, transparent), transparent);
+    background-repeat: no-repeat;
+    min-height: 100dvh;
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+  }
+  ::selection {
+    background: var(--primary-soft);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    opacity: 0.55;
+    cursor: pointer;
+  }
+  .dark input[type="date"]::-webkit-calendar-picker-indicator,
+  .dark input[type="time"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+  }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+}
+
+/* Soft gradient surface for hero cards (Today header, Money balance). */
+@utility surface-hero {
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--primary) 16%, transparent) 0%, transparent 55%),
+    radial-gradient(90% 120% at 100% 100%, color-mix(in oklab, var(--success) 10%, transparent) 0%, transparent 60%),
+    var(--card);
+}
+
+/* Hide scrollbars on horizontal chip rows while keeping them scrollable. */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
+}

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 350" width="100%" height="100%">
+  <defs>
+    <linearGradient id="nbeSignBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006A4E"/>
+      <stop offset="100%" stop-color="#004D38"/>
+    </linearGradient>
+    <linearGradient id="nbeOrangeBanner" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFA000"/>
+      <stop offset="50%" stop-color="#FF7900"/>
+      <stop offset="100%" stop-color="#EB5A00"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Green Sign Background -->
+  <rect width="1000" height="350" rx="44" fill="url(#nbeSignBg)"/>
+
+  <!-- Left: Official Typography -->
+  <g transform="translate(60, 0)">
+    <!-- Arabic Calligraphy "البنك الأهلي المصري" in White -->
+    <text x="320" y="160" font-family="'Cairo', 'Segoe UI', Tahoma, sans-serif" font-weight="900" font-size="64" fill="#FFFFFF" text-anchor="middle">البنك الأهلي المصري</text>
+    
+    <!-- Orange Separator Bar -->
+    <rect x="0" y="190" width="640" height="10" rx="5" fill="url(#nbeOrangeBanner)"/>
+    
+    <!-- English "NATIONAL BANK OF EGYPT" in Bold White -->
+    <text x="320" y="260" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="34" fill="#FFFFFF" text-anchor="middle" letter-spacing="4">NATIONAL BANK OF EGYPT</text>
+  </g>
+
+  <!-- Right: Official NBE Emblem -->
+  <g transform="translate(740, 45)">
+    <!-- White Arch -->
+    <path d="M 0 35 
+             C 0 10, 10 0, 35 0 
+             L 135 0 
+             C 160 0, 170 10, 170 35 
+             L 170 200 
+             L 136 200 
+             L 136 38 
+             C 136 30, 130 24, 122 24 
+             L 48 24 
+             C 40 24, 34 30, 34 38 
+             L 34 200 
+             L 0 200 Z" 
+          fill="#FFFFFF"/>
+
+    <!-- Orange Dome -->
+    <path d="M 46 45 
+             L 124 45 
+             C 124 95, 46 95, 46 45 Z" 
+          fill="url(#nbeOrangeBanner)"/>
+
+    <!-- 3 Orange Pillars -->
+    <rect x="42" y="125" width="22" height="95" rx="11" fill="url(#nbeOrangeBanner)"/>
+    <rect x="74" y="125" width="22" height="95" rx="11" fill="url(#nbeOrangeBanner)"/>
+    <rect x="106" y="125" width="22" height="95" rx="11" fill="url(#nbeOrangeBanner)"/>
+  </g>
+</svg>

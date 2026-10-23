@@ -1,0 +1,248 @@
+// Personal OS — Prisma Schema (SQLite)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ─────────────────────────────────────────
+// USER SETTINGS
+// ─────────────────────────────────────────
+model UserSettings {
+  id                  String  @id @default("default")
+  name                String  @default("Gohar")
+  timezone            String  @default("Africa/Cairo")
+  location            String  @default("Alexandria, Egypt")
+  latitude            Float   @default(31.2001)
+  longitude           Float   @default(29.9187)
+  defaultCurrency     String  @default("EGP")
+  charityPercentage   Float   @default(5.0)
+  theme               String  @default("dark")
+  prayerMethod        String  @default("Egyptian")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────
+// GOALS
+// ─────────────────────────────────────────
+model Goal {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  category     String   @default("Financial") // Financial | Career | Learning | Health | Personal | Other
+  targetValue  Float?
+  currentValue Float    @default(0)
+  unit         String?
+  deadline     DateTime?
+  status       String   @default("Active") // Active | Paused | Completed | Archived
+  priority     String   @default("Medium") // Low | Medium | High | Critical
+  color        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  projects     Project[]
+}
+
+// ─────────────────────────────────────────
+// PROJECTS
+// ─────────────────────────────────────────
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("Active") // Idea | Planned | Active | Paused | Completed | Archived
+  priority    String   @default("P2")     // P0 | P1 | P2 | P3
+  deadline    DateTime?
+  isFocus     Boolean  @default(false)
+  color       String?
+  goalId      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  goal        Goal?       @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  milestones  Milestone[]
+  tasks       Task[]
+}
+
+// ─────────────────────────────────────────
+// MILESTONES
+// ─────────────────────────────────────────
+model Milestone {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  status      String   @default("Active") // Active | Completed | Cancelled
+  dueDate     DateTime?
+  projectId   String
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+}
+
+// ─────────────────────────────────────────
+// TASKS
+// ─────────────────────────────────────────
+model Task {
+  id                String    @id @default(cuid())
+  title             String
+  description       String?
+  status            String    @default("Todo") // Todo | InProgress | Completed | Cancelled
+  priority          String    @default("Medium") // Low | Medium | High | Critical
+  projectId         String?
+  milestoneId       String?
+  parentId          String?
+  dueDate           DateTime?
+  startDate         DateTime?
+  scheduledDate     DateTime?
+  startTime         String?   // "09:00"
+  endTime           String?   // "10:30"
+  estimatedMinutes  Int?
+  tags              String?   // JSON array stored as string
+  notes             String?
+  completedAt       DateTime?
+  order             Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  project     Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  milestone   Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  parent      Task?      @relation("SubTasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks    Task[]     @relation("SubTasks")
+}
+
+// ─────────────────────────────────────────
+// HABITS / RECURRING ACTIVITIES
+// ─────────────────────────────────────────
+model Habit {
+  id          String   @id @default(cuid())
+  name        String
+  category    String   @default("General") // Religious | Health | Learning | General
+  recurrence  String   @default("daily")   // daily | weekly | custom (JSON of weekdays)
+  weekdays    String?  // JSON array: [0,1,2,3,4,5,6] where 0=Sunday
+  targetValue Float?
+  unit        String?
+  isActive    Boolean  @default(true)
+  startDate   DateTime @default(now())
+  endDate     DateTime?
+  order       Int      @default(0)
+  isPrayer    Boolean  @default(false)
+  isAdhkar    Boolean  @default(false)
+  isQuran     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  logs        HabitLog[]
+}
+
+model HabitLog {
+  id        String   @id @default(cuid())
+  habitId   String
+  date      String   // "2025-08-25" — date-only key
+  completed Boolean  @default(false)
+  value     Float?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  habit     Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@unique([habitId, date])
+}
+
+// ─────────────────────────────────────────
+// FINANCE — ACCOUNTS
+// ─────────────────────────────────────────
+model Account {
+  id             String   @id @default(cuid())
+  name           String
+  type           String   @default("Cash") // Cash | Bank | Wallet | Other
+  currency       String   @default("EGP")
+  openingBalance Float    @default(0)
+  isActive       Boolean  @default(true)
+  color          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  transactionsFrom Transaction[] @relation("FromAccount")
+  transactionsTo   Transaction[] @relation("ToAccount")
+  transactions     Transaction[] @relation("Account")
+}
+
+// ─────────────────────────────────────────
+// FINANCE — TRANSACTIONS
+// ─────────────────────────────────────────
+model Transaction {
+  id            String    @id @default(cuid())
+  type          String    // Income | Expense | Transfer | Charity
+  amount        Float
+  currency      String    @default("EGP")
+  category      String?
+  accountId     String?
+  fromAccountId String?
+  toAccountId   String?
+  date          DateTime  @default(now())
+  description   String?
+  projectId     String?
+  goalId        String?
+  isCharity     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  account       Account?  @relation("Account", fields: [accountId], references: [id], onDelete: SetNull)
+  fromAccount   Account?  @relation("FromAccount", fields: [fromAccountId], references: [id], onDelete: SetNull)
+  toAccount     Account?  @relation("ToAccount", fields: [toAccountId], references: [id], onDelete: SetNull)
+}
+
+// ─────────────────────────────────────────
+// INBOX
+// ─────────────────────────────────────────
+model InboxItem {
+  id          String   @id @default(cuid())
+  content     String
+  status      String   @default("Pending") // Pending | Processed | Archived
+  type        String?  // note | task | idea
+  isProcessed Boolean  @default(false)
+  convertedTo String?  // Task | Project | Goal | Note
+  convertedId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─────────────────────────────────────────
+// WEEKLY REVIEW
+// ─────────────────────────────────────────
+model WeeklyReview {
+  id                 String   @id @default(cuid())
+  weekStart          DateTime
+  weekEnd            DateTime
+  wins               String?
+  challenges         String?
+  lessonsLearned     String?
+  nextWeekPriorities String?
+  faithReflection    String?
+  overallRating      Int?
+  tasksCompleted     Int      @default(0)
+  tasksCreated       Int      @default(0)
+  milestonesComplete Int      @default(0)
+  habitCompletionPct Float    @default(0)
+  prayerCompletionPct Float   @default(0)
+  quranCompletionPct Float    @default(0)
+  workoutCount       Int      @default(0)
+  incomeTotal        Float    @default(0)
+  expenseTotal       Float    @default(0)
+  savingsTotal       Float    @default(0)
+  charityTotal       Float    @default(0)
+  wentWell           String?
+  didntGoWell        String?
+  blockers           String?
+  nextWeekFocus      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+

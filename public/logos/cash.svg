@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="300" rx="48" fill="url(#cg)"/>
+  
+  <!-- Banknote / Cash Icon -->
+  <rect x="50" y="80" width="200" height="140" rx="16" fill="none" stroke="#FFFFFF" stroke-width="12"/>
+  <circle cx="150" cy="150" r="35" fill="none" stroke="#FFFFFF" stroke-width="12"/>
+  <text x="150" y="165" font-family="'Inter', 'Arial Black', sans-serif" font-weight="900" font-size="44" fill="#FFFFFF" text-anchor="middle">$</text>
+  <circle cx="85" cy="115" r="8" fill="#FFFFFF"/>
+  <circle cx="215" cy="185" r="8" fill="#FFFFFF"/>
+</svg>

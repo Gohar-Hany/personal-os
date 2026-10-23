@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="100%" height="100%">
+  <defs>
+    <linearGradient id="og" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF7900"/>
+      <stop offset="100%" stop-color="#E56700"/>
+    </linearGradient>
+  </defs>
+  <rect width="300" height="300" rx="48" fill="url(#og)"/>
+  
+  <!-- "orange" lowercase official typography -->
+  <text x="35" y="195" font-family="'Inter', 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="52" fill="#FFFFFF" letter-spacing="-1">orange</text>
+  
+  <!-- "cash" dark pill badge -->
+  <rect x="35" y="215" width="95" height="32" rx="8" fill="#000000"/>
+  <text x="82.5" y="237" font-family="'Inter', 'Arial Black', sans-serif" font-weight="900" font-size="17" fill="#FF7900" text-anchor="middle" letter-spacing="1">CASH</text>
+</svg>

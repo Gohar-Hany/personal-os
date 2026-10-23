@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <linearGradient id="nbeGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006A4E"/>
+      <stop offset="100%" stop-color="#004D38"/>
+    </linearGradient>
+    <linearGradient id="nbeGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F6B800"/>
+      <stop offset="100%" stop-color="#D99B00"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with subtle rounded shape -->
+  <rect width="400" height="400" rx="60" fill="url(#nbeGreen)"/>
+  
+  <!-- Outer Gold Ring Accent -->
+  <circle cx="200" cy="180" r="120" fill="none" stroke="url(#nbeGold)" stroke-width="8" stroke-dasharray="12 6" opacity="0.4"/>
+  
+  <!-- Inner Emblem Structure -->
+  <circle cx="200" cy="180" r="105" fill="#005740" stroke="url(#nbeGold)" stroke-width="6"/>
+
+  <!-- Stylized Egyptian Tree / Lotus Leaves Icon (Official NBE Motif) -->
+  <path d="M 200 95 
+           C 215 125, 245 140, 260 170 
+           C 250 185, 230 185, 220 175 
+           C 230 195, 235 220, 215 240 
+           C 208 245, 202 248, 200 250 
+           C 198 248, 192 245, 185 240 
+           C 165 220, 170 195, 180 175 
+           C 170 185, 150 185, 140 170 
+           C 155 140, 185 125, 200 95 Z" 
+        fill="url(#nbeGold)"/>
+        
+  <!-- Center Trunk Stem -->
+  <path d="M 197 140 L 203 140 L 204 250 L 196 250 Z" fill="#FFFFFF"/>
+  <circle cx="200" cy="130" r="8" fill="#FFFFFF"/>
+
+  <!-- NBE Acronym / Typography -->
+  <text x="200" y="325" font-family="'Inter', 'Arial Black', sans-serif" font-weight="900" font-size="44" fill="#FFFFFF" text-anchor="middle" letter-spacing="4">NBE</text>
+  <text x="200" y="365" font-family="'Inter', 'Arial', sans-serif" font-weight="700" font-size="20" fill="url(#nbeGold)" text-anchor="middle" letter-spacing="1">AL AHLI BANK</text>
+</svg>
