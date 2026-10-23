@@ -20,6 +20,8 @@ import { TaskInlineAdd } from "@/components/tasks/TaskInlineAdd"
 import { useLiveTasks, useTaskActions } from "@/components/tasks/useTasks"
 import { FaithCard, PrayerStrip, nextPrayer, untilLabel, usePrayerTimes, type PrayerLocation } from "@/components/today/FaithCard"
 import { useNow } from "@/components/today/useNow"
+import { AdhkarReaderModal } from "@/components/faith/AdhkarReaderModal"
+import { QuranReaderModal } from "@/components/faith/QuranReaderModal"
 import type { GoalDTO, TaskDTO, TodayHabitDTO } from "@/types"
 
 interface FocusProject {
@@ -38,6 +40,7 @@ export function TodayClient({
   money,
   goals,
   location,
+  quranPage = 1,
   backlogCount,
   reviewDue,
 }: {
@@ -47,6 +50,7 @@ export function TodayClient({
   money: { totalBalance: number; cash: number | null; spentToday: number; monthExpenses: number; monthIncome: number }
   goals: GoalDTO[]
   location: PrayerLocation
+  quranPage?: number
   backlogCount: number
   reviewDue: boolean
 }) {
@@ -61,6 +65,57 @@ export function TodayClient({
   const [habits, setHabits] = useSynced(serverHabits)
   const [showDone, setShowDone] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
+
+  const [activeAdhkar, setActiveAdhkar] = useState<"morning" | "evening" | null>(null)
+  const [quranModalOpen, setQuranModalOpen] = useState(false)
+  const [currentQuranPage, setCurrentQuranPage] = useState(quranPage ?? 1)
+
+  useEffect(() => {
+    if (quranPage) setCurrentQuranPage(quranPage)
+  }, [quranPage])
+
+  const handleCompleteAdhkar = async (type: "morning" | "evening") => {
+    const keyword = type === "morning" ? "morning" : "evening"
+    const habit = habits.find(
+      (h) =>
+        h.isAdhkar &&
+        (h.name.toLowerCase().includes(keyword) || (type === "morning" ? h.name.includes("صباح") : h.name.includes("مساء"))),
+    )
+    if (habit && !habit.done) {
+      setHabits((list) => list.map((x) => (x.id === habit.id ? { ...x, done: true } : x)))
+      try {
+        await api("/api/habits/log", { body: { habitId: habit.id, completed: true, date: dateKey() } })
+        refresh()
+      } catch (err) {
+        toast.error((err as Error).message)
+      }
+    }
+    toast.success(`تقبل الله طاعتكم ✨ تم إتمام ${type === "morning" ? "أذكار الصباح" : "أذكار المساء"}`)
+  }
+
+  const handleCompleteQuranWird = async () => {
+    const habit = habits.find((h) => h.isQuran || h.name.toLowerCase().includes("quran") || h.name.includes("قرآن"))
+    if (habit && !habit.done) {
+      setHabits((list) => list.map((x) => (x.id === habit.id ? { ...x, done: true } : x)))
+      try {
+        await api("/api/habits/log", { body: { habitId: habit.id, completed: true, date: dateKey() } })
+        refresh()
+      } catch (err) {
+        toast.error((err as Error).message)
+      }
+    }
+    toast.success("هنيئاً لك ختم ورد اليوم 📖 تقبل الله!")
+  }
+
+  const handleQuranPageChange = async (newPage: number) => {
+    setCurrentQuranPage(newPage)
+    try {
+      await api("/api/settings", { method: "PATCH", body: { quranPage: newPage } })
+      refresh()
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
 
   const groups = useMemo(() => {
     const overdue: TaskDTO[] = []
@@ -262,7 +317,13 @@ export function TodayClient({
 
         {/* ─── Right: faith, routine, money, goals ─── */}
         <div className="space-y-6">
-          <FaithCard habits={habits} onToggle={toggleHabit} />
+          <FaithCard
+            habits={habits}
+            onToggle={toggleHabit}
+            quranPage={currentQuranPage}
+            onOpenAdhkar={(type) => setActiveAdhkar(type)}
+            onOpenQuran={() => setQuranModalOpen(true)}
+          />
 
           {routine.length > 0 && (
             <Card>
@@ -323,6 +384,21 @@ export function TodayClient({
       </div>
 
       <PlanDialog open={planOpen} onOpenChange={setPlanOpen} />
+
+      <AdhkarReaderModal
+        isOpen={!!activeAdhkar}
+        onClose={() => setActiveAdhkar(null)}
+        type={activeAdhkar || "morning"}
+        onComplete={() => activeAdhkar && handleCompleteAdhkar(activeAdhkar)}
+      />
+
+      <QuranReaderModal
+        isOpen={quranModalOpen}
+        onClose={() => setQuranModalOpen(false)}
+        currentPage={currentQuranPage}
+        onPageChange={handleQuranPageChange}
+        onCompleteWird={handleCompleteQuranWird}
+      />
     </div>
   )
 }

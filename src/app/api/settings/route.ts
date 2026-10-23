@@ -23,6 +23,7 @@ export const PATCH = route(async (req: NextRequest) => {
     defaultCurrency: oneOf(b.defaultCurrency, CURRENCIES, "currency"),
     charityPercentage: charity ?? undefined,
     prayerMethod: b.prayerMethod !== undefined ? String(b.prayerMethod) : undefined,
+    quranPage: optionalNumber(b.quranPage) ?? undefined,
     theme: oneOf(b.theme, ["light", "dark", "system"] as const, "theme"),
   })
   return prisma.userSettings.upsert({ where: { id: "default" }, create: { id: "default", ...data }, update: data })

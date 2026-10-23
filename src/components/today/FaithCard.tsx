@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { BookOpen, Check } from "lucide-react"
+import { BookOpen, Check, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PrayerTimeService, type PrayerTimesResult } from "@/lib/prayer/PrayerTimeService"
 import { Card, CardHeader } from "@/components/ui/card"
@@ -53,27 +53,122 @@ export function untilLabel(target: Date, now: Date) {
 }
 
 /** Quran and adhkar for today. */
-export function FaithCard({ habits, onToggle }: { habits: TodayHabitDTO[]; onToggle: (h: TodayHabitDTO) => void }) {
+export function FaithCard({
+  habits,
+  onToggle,
+  quranPage = 1,
+  onOpenAdhkar,
+  onOpenQuran,
+}: {
+  habits: TodayHabitDTO[]
+  onToggle: (h: TodayHabitDTO) => void
+  quranPage?: number
+  onOpenAdhkar?: (type: "morning" | "evening") => void
+  onOpenQuran?: () => void
+}) {
   const others = habits.filter((h) => !h.isPrayer && (h.isQuran || h.isAdhkar || h.category === "Religious"))
   if (others.length === 0) return null
 
   return (
     <Card>
-      <CardHeader title="Quran & adhkar" icon={<BookOpen />} tone="success" meta={`${others.filter((h) => h.done).length}/${others.length}`} href="/habits" hrefLabel="Habits" />
-      <div className="pb-2">
-        {others.map((h) => (
-          <Row
-            key={h.id}
-            checked={h.done}
-            onToggle={() => onToggle(h)}
-            title={h.name}
-            right={
-              <span className="text-xs text-muted-foreground">
-                {h.targetValue ? `${h.targetValue} ${h.unit ?? ""}`.trim() : h.name.toLowerCase().includes("morning") ? "after Fajr" : h.name.toLowerCase().includes("evening") ? "after Asr" : ""}
-              </span>
-            }
-          />
-        ))}
+      <CardHeader
+        title="Quran & adhkar"
+        icon={<BookOpen />}
+        tone="success"
+        meta={`${others.filter((h) => h.done).length}/${others.length}`}
+        href="/habits"
+        hrefLabel="Habits"
+      />
+      <div className="space-y-1 p-2">
+        {others.map((h) => {
+          const isQuran = h.isQuran || h.name.toLowerCase().includes("quran") || h.name.includes("قرآن")
+          const isMorning = h.isAdhkar && (h.name.toLowerCase().includes("morning") || h.name.includes("صباح"))
+          const isEvening = h.isAdhkar && (h.name.toLowerCase().includes("evening") || h.name.includes("مساء"))
+
+          let subText = ""
+          let actionNode: React.ReactNode = null
+          let onRowClick: (() => void) | undefined = undefined
+
+          if (isQuran) {
+            subText = `ص ${quranPage} - ${Math.min(604, quranPage + 1)}`
+            onRowClick = onOpenQuran
+            actionNode = (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenQuran?.()
+                }}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-95",
+                  h.done
+                    ? "border-success/30 bg-success-soft text-success hover:bg-success/20"
+                    : "border-primary/25 bg-primary-soft text-primary hover:bg-primary/20",
+                )}
+              >
+                <BookOpen className="size-3.5" />
+                <span>{h.done ? "مراجعة الورد" : `اقرأ ص ${quranPage}`}</span>
+              </button>
+            )
+          } else if (isMorning) {
+            subText = "بعد الفجر"
+            onRowClick = () => onOpenAdhkar?.("morning")
+            actionNode = (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenAdhkar?.("morning")
+                }}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-95",
+                  h.done
+                    ? "border-success/30 bg-success-soft text-success hover:bg-success/20"
+                    : "border-amber-500/25 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 dark:text-amber-400 dark:border-amber-500/30",
+                )}
+              >
+                <Sparkles className="size-3.5" />
+                <span>{h.done ? "تمت · اقرأ ثانية" : "ابدأ الأذكار"}</span>
+              </button>
+            )
+          } else if (isEvening) {
+            subText = "بعد العصر"
+            onRowClick = () => onOpenAdhkar?.("evening")
+            actionNode = (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOpenAdhkar?.("evening")
+                }}
+                className={cn(
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-all active:scale-95",
+                  h.done
+                    ? "border-success/30 bg-success-soft text-success hover:bg-success/20"
+                    : "border-indigo-500/25 bg-indigo-500/10 text-indigo-700 hover:bg-indigo-500/20 dark:text-indigo-400 dark:border-indigo-500/30",
+                )}
+              >
+                <Sparkles className="size-3.5" />
+                <span>{h.done ? "تمت · اقرأ ثانية" : "ابدأ الأذكار"}</span>
+              </button>
+            )
+          } else {
+            subText = h.targetValue ? `${h.targetValue} ${h.unit ?? ""}`.trim() : ""
+            onRowClick = () => onToggle(h)
+          }
+
+          return (
+            <Row
+              key={h.id}
+              checked={h.done}
+              onToggle={() => onToggle(h)}
+              onRowClick={onRowClick}
+              title={h.name}
+              sub={subText}
+              right={actionNode}
+            />
+          )
+        })}
       </div>
     </Card>
   )
@@ -82,6 +177,7 @@ export function FaithCard({ habits, onToggle }: { habits: TodayHabitDTO[]; onTog
 function Row({
   checked,
   onToggle,
+  onRowClick,
   title,
   sub,
   right,
@@ -89,6 +185,7 @@ function Row({
 }: {
   checked: boolean
   onToggle: () => void
+  onRowClick?: () => void
   title: string
   sub?: string
   right?: React.ReactNode
@@ -96,17 +193,29 @@ function Row({
 }) {
   return (
     <div
-      onClick={onToggle}
+      onClick={onRowClick || onToggle}
       className={cn(
-        "mx-2 flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-subtle",
+        "group flex cursor-pointer items-center justify-between gap-3 rounded-xl px-2.5 py-2 transition-all hover:bg-subtle",
         highlight && "bg-primary-soft hover:bg-primary-soft",
       )}
     >
-      <CheckCircle checked={checked} onChange={onToggle} label={title} />
-      <span className={cn("flex-1 text-sm", checked && "text-muted-foreground line-through decoration-muted-foreground/50")}>
-        {title}
-        {sub && <span className="ml-2 text-xs text-muted-foreground" dir="rtl">{sub}</span>}
-      </span>
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          onClick={(e) => {
+            e.stopPropagation()
+            onToggle()
+          }}
+          className="shrink-0"
+        >
+          <CheckCircle checked={checked} onChange={onToggle} label={title} />
+        </div>
+        <div className="min-w-0">
+          <p className={cn("text-sm font-medium leading-tight truncate", checked && "text-muted-foreground line-through decoration-muted-foreground/50")}>
+            {title}
+          </p>
+          {sub && <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{sub}</p>}
+        </div>
+      </div>
       {right}
     </div>
   )

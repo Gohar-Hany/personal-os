@@ -22,6 +22,7 @@ model UserSettings {
   charityPercentage   Float   @default(5.0)
   theme               String  @default("dark")
   prayerMethod        String  @default("Egyptian")
+  quranPage           Int     @default(1)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

@@ -41,6 +41,7 @@ export default async function TodayPage() {
         lng: settings?.longitude ?? 29.9187,
         method: settings?.prayerMethod ?? "Egyptian",
       }}
+      quranPage={settings?.quranPage ?? 1}
       backlogCount={backlogCount}
       reviewDue={reviewDue}
     />
