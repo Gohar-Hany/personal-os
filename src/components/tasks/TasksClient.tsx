@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
-  AlertCircle, CalendarClock, CalendarDays, CalendarX2, CheckCircle2, ChevronDown, CircleDot, Columns3, Flag, FolderKanban,
+  AlertCircle, ArrowUpRight, CalendarClock, CalendarDays, CalendarX2, CheckCircle2, ChevronDown, CircleDot, Columns3, Flag, FolderKanban,
   Layers, List, Plus, Search, SlidersHorizontal, Sparkles, Sun, X, Zap,
 } from "lucide-react"
 import { cn, calcProgress } from "@/lib/utils"
@@ -13,7 +13,7 @@ import { addDaysToKey } from "@/lib/zone"
 import { useIsMobile, useMediaQuery, useStoredState } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/form"
-import { EmptyState, Kbd, Segmented } from "@/components/ui/misc"
+import { EmptyState } from "@/components/ui/misc"
 import { useApp, useClock } from "@/components/app/AppProvider"
 import { TASK_COLS, TaskRow, projectDot } from "@/components/tasks/TaskRow"
 import { TaskInlineAdd } from "@/components/tasks/TaskInlineAdd"
@@ -29,11 +29,11 @@ type GroupBy = (typeof GROUPINGS)[number]
 
 type AddDefaults = { scheduledDate?: string; projectId?: string; milestoneId?: string; priority?: string; status?: string }
 
-/** One block of the list. Project headers (depth 0) are followed by their milestones (depth 1). */
+/** One block of the list. A project is followed by its milestones. */
 interface Section {
   key: string
+  kind: "project" | "milestone" | "group"
   title: string
-  depth: 0 | 1
   icon?: React.ReactNode
   tone?: "danger"
   tasks: TaskDTO[]
@@ -45,9 +45,11 @@ interface Section {
   add?: AddDefaults
   /** Shown count when it differs from `tasks` (a project counts its milestones' tasks too). */
   count?: number
-  /** Small uppercase heading (date/priority/status groups) vs. a named heading (project/milestone). */
-  caps?: boolean
 }
+
+// Quiet "pill" controls for the toolbar (Select/LabelFilter use field styles by default)
+const GHOST =
+  "h-9 w-auto gap-1.5 rounded-full border-transparent bg-transparent px-3 text-[13px] text-muted-foreground hover:border-transparent hover:bg-muted hover:text-foreground data-[state=open]:border-transparent data-[state=open]:bg-muted data-[state=open]:ring-0 sm:h-9 sm:text-[13px]"
 
 export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
   const { projects, quickAdd, openTask } = useApp()
@@ -75,7 +77,7 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
   const allLabels = useMemo(() => collectLabels(all.filter((t) => t.status !== "Cancelled")), [all])
   const weekEnd = addDaysToKey(clock.today, 7)
 
-  // Search, project and label filters (the smart view comes on top)
+  // Search, project and label filters (the view tab comes on top)
   const base = useMemo(() => {
     const q = search.trim().toLowerCase()
     const want = labels.map((l) => l.toLowerCase())
@@ -133,7 +135,7 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
   )
 
   const sections: Section[] = useMemo(
-    () => (smart === "done" ? [{ key: "done", title: "Completed", depth: 0, caps: true, tasks: shown }] : buildSections(groupBy, shown, all, projects, clock)),
+    () => (smart === "done" ? [{ key: "done", kind: "group", title: "Completed", icon: <CheckCircle2 className="size-4 text-success" />, tasks: shown }] : buildSections(groupBy, shown, all, projects, clock)),
     [smart, groupBy, shown, all, projects, clock],
   )
   const codeColumn = useMemo(() => shown.some((t) => splitTitle(t.title).code), [shown])
@@ -161,76 +163,50 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
     { value: "done", label: "Done", icon: <CheckCircle2 />, count: counts.done, hideEmpty: true },
   ]
 
-  const toolbar = (
-    <div className={cn("flex-col gap-2 border-b border-border p-3 sm:flex @3xl/list:flex-row @3xl/list:items-center", showTools || search ? "flex" : "hidden")}>
-      <div className="relative min-w-0 flex-1 @3xl/list:max-w-72">
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search tasks, clients, labels"
-          aria-label="Search tasks"
-          className="h-10 w-full rounded-lg border border-border bg-card pr-8 pl-9 text-base outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/15 sm:h-9 sm:text-sm"
-        />
-        {search && (
-          <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded p-1 text-muted-foreground hover:text-foreground">
-            <X className="size-3.5" />
-          </button>
-        )}
-      </div>
-      <div className="hidden flex-1 @3xl/list:block" />
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 @3xl/list:flex">
-        <LabelFilter labels={allLabels} value={labels} onChange={setLabels} className="@3xl/list:w-36" />
-        <Select
-          value={projectId}
-          onChange={setProjectId}
-          placeholder="All projects"
-          icon={<FolderKanban />}
-          options={[{ value: "none", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name, dot: projectDot(p.id) }))]}
-          className="@3xl/list:w-40"
-          aria-label="Filter by project"
-        />
-        {view === "list" && smart !== "done" && (
-          <Select
-            value={groupBy}
-            onChange={(v) => setGroupBy(v as GroupBy)}
-            icon={<Layers />}
-            options={[
-              { value: "project", label: "By project", icon: <FolderKanban /> },
-              { value: "date", label: "By date", icon: <CalendarClock /> },
-              { value: "priority", label: "By priority", icon: <Flag /> },
-              { value: "status", label: "By status", icon: <CircleDot /> },
-            ]}
-            className="col-span-2 sm:col-span-1 @3xl/list:w-40"
-            aria-label="Group tasks"
-          />
-        )}
-      </div>
+  const searchBox = (cls?: string) => (
+    <div className={cn("relative min-w-0", cls)}>
+      <Search className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground" />
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search"
+        aria-label="Search tasks"
+        className="h-10 w-full rounded-full border border-transparent bg-muted/70 pr-8 pl-10 text-base transition-colors outline-none placeholder:text-muted-foreground focus:border-border focus:bg-card sm:h-9 sm:text-[13px]"
+      />
+      {search && (
+        <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute top-1/2 right-2.5 -translate-y-1/2 cursor-pointer rounded-full p-1 text-muted-foreground hover:text-foreground">
+          <X className="size-3.5" />
+        </button>
+      )}
     </div>
   )
 
+  const projectOptions = [{ value: "none", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name, dot: projectDot(p.id) }))]
+  const groupOptions = [
+    { value: "project", label: "By project", icon: <FolderKanban /> },
+    { value: "date", label: "By date", icon: <CalendarClock /> },
+    { value: "priority", label: "By priority", icon: <Flag /> },
+    { value: "status", label: "By status", icon: <CircleDot /> },
+  ]
+
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-7 sm:space-y-8">
       {/* Header */}
-      <div className="flex items-end gap-3">
+      <header className="flex items-end gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
-          <p className="mt-0.5 text-[13px] text-muted-foreground">
-            <span className="text-foreground tabular">{counts.all}</span> open
+          <h1 className="text-[28px] leading-tight font-semibold tracking-tight sm:text-[32px]">Tasks</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground tabular">{counts.all}</span> open
             {counts.overdue > 0 && (
               <>
-                {" · "}
+                <span className="px-1.5 text-muted-foreground/50">·</span>
                 <button type="button" onClick={() => setSmart("today")} className="cursor-pointer font-medium text-danger tabular hover:underline">
                   {counts.overdue} overdue
                 </button>
               </>
             )}
-            {" · "}
-            <span className="tabular">{counts.week}</span> in the next 7 days
-            <span className="hidden lg:inline">
-              {" · "}
-              <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>X</Kbd> done · <Kbd>N</Kbd> new
-            </span>
+            <span className="px-1.5 text-muted-foreground/50">·</span>
+            <span className="tabular">{counts.week}</span> this week
           </p>
         </div>
         <Button
@@ -239,69 +215,98 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
           aria-label="Search and filters"
           aria-pressed={showTools}
           onClick={() => setShowTools((v) => !v)}
-          className="relative sm:hidden"
+          className="relative rounded-full sm:hidden"
         >
           <SlidersHorizontal />
           {filtering && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary" />}
         </Button>
-        <Segmented
-          className="hidden sm:inline-flex"
-          value={view}
-          onChange={setView}
-          options={[
-            { value: "list", label: <><List /> List</> },
-            { value: "board", label: <><Columns3 /> Board</> },
-          ]}
-        />
-        <Button variant="primary" onClick={() => quickAdd({ mode: "task" })} className="hidden sm:inline-flex">
+        <div className="hidden items-center rounded-full bg-muted/70 p-1 sm:flex" role="tablist" aria-label="Layout">
+          {(["list", "board"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              role="tab"
+              aria-selected={view === v}
+              aria-label={v === "list" ? "List" : "Board"}
+              title={v === "list" ? "List" : "Board"}
+              onClick={() => setView(v)}
+              className={cn(
+                "flex size-8 cursor-pointer items-center justify-center rounded-full transition-all [&_svg]:size-4",
+                view === v ? "bg-card text-foreground shadow-[var(--shadow-card)]" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {v === "list" ? <List /> : <Columns3 />}
+            </button>
+          ))}
+        </div>
+        <Button variant="primary" onClick={() => quickAdd({ mode: "task" })} className="hidden rounded-full px-4 sm:inline-flex">
           <Plus /> New task
         </Button>
-      </div>
+      </header>
 
-      {/* Views */}
-      <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:gap-1 sm:border-b sm:border-border sm:px-0">
-        {TABS.filter((t) => !t.hideEmpty || t.count > 0 || smart === t.value).map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => setSmart(t.value)}
-            aria-pressed={smart === t.value}
-            className={cn(
-              "flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium whitespace-nowrap transition-colors [&_svg]:size-4",
-              "sm:-mb-px sm:h-10 sm:rounded-none sm:border-0 sm:border-b-2 sm:px-3",
-              smart === t.value
-                ? "border-primary/40 bg-primary-soft text-primary sm:border-primary sm:bg-transparent sm:text-foreground"
-                : "border-border bg-card text-muted-foreground hover:text-foreground sm:border-transparent sm:bg-transparent",
+      {/* Views + tools */}
+      <div className="space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <nav className="-mx-4 flex gap-1 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:px-0" aria-label="Views">
+            {TABS.filter((t) => !t.hideEmpty || t.count > 0 || smart === t.value).map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setSmart(t.value)}
+                aria-pressed={smart === t.value}
+                className={cn(
+                  "flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full px-3.5 text-[13px] font-medium whitespace-nowrap transition-colors",
+                  smart === t.value ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {t.label}
+                <span className={cn("text-xs tabular", smart === t.value ? "text-background/60" : "text-muted-foreground/70")}>{t.count}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="hidden flex-1 lg:block" />
+          <div className="hidden flex-wrap items-center gap-1 sm:flex">
+            {searchBox("w-56")}
+            <LabelFilter labels={allLabels} value={labels} onChange={setLabels} className={GHOST} />
+            <Select value={projectId} onChange={setProjectId} placeholder="Project" icon={<FolderKanban />} options={projectOptions} className={GHOST} aria-label="Filter by project" />
+            {view === "list" && smart !== "done" && (
+              <Select value={groupBy} onChange={(v) => setGroupBy(v as GroupBy)} icon={<Layers />} options={groupOptions} className={GHOST} aria-label="Group tasks" />
             )}
-          >
-            <span className={cn(smart === t.value && "sm:text-primary")}>{t.icon}</span>
-            {t.label}
-            <span className={cn("rounded-md px-1.5 text-xs tabular", smart === t.value ? "bg-primary/15 sm:bg-primary-soft sm:text-primary" : "bg-muted")}>{t.count}</span>
-          </button>
-        ))}
-      </div>
-
-      {filtering && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-muted-foreground">Showing</span>
-          {search && <FilterPill onClear={() => setSearch("")}>“{search}”</FilterPill>}
-          {projectId && <FilterPill onClear={() => setProjectId("")}>{projectId === "none" ? "No project" : projects.find((p) => p.id === projectId)?.name}</FilterPill>}
-          {labels.map((l) => (
-            <FilterPill key={l} onClear={() => setLabels(labels.filter((x) => x !== l))}>{l}</FilterPill>
-          ))}
-          <button type="button" onClick={clearFilters} className="cursor-pointer px-1 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
-            Clear all
-          </button>
+          </div>
         </div>
-      )}
+
+        {/* Phones: search and filters on demand */}
+        {(showTools || search) && (
+          <div className="space-y-2 sm:hidden">
+            {searchBox("w-full")}
+            <div className="grid grid-cols-3 gap-2">
+              <LabelFilter labels={allLabels} value={labels} onChange={setLabels} className="rounded-xl" />
+              <Select value={projectId} onChange={setProjectId} placeholder="Project" icon={<FolderKanban />} options={projectOptions} className="rounded-xl" aria-label="Filter by project" />
+              <Select value={groupBy} onChange={(v) => setGroupBy(v as GroupBy)} icon={<Layers />} options={groupOptions} className="rounded-xl" aria-label="Group tasks" />
+            </div>
+          </div>
+        )}
+
+        {filtering && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            {search && <FilterPill onClear={() => setSearch("")}>“{search}”</FilterPill>}
+            {projectId && <FilterPill onClear={() => setProjectId("")}>{projectId === "none" ? "No project" : projects.find((p) => p.id === projectId)?.name}</FilterPill>}
+            {labels.map((l) => (
+              <FilterPill key={l} onClear={() => setLabels(labels.filter((x) => x !== l))}>{l}</FilterPill>
+            ))}
+            <button type="button" onClick={clearFilters} className="cursor-pointer px-1.5 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+              Clear
+            </button>
+          </div>
+        )}
+      </div>
 
       {view === "list" ? (
-        <div className={cn("grid grid-cols-1 items-start gap-5", selectedTask && "grid-cols-[minmax(0,1fr)_400px]")}>
-          <div className="@container/list rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] [overflow:clip]">
-            {toolbar}
+        <div className={cn("grid grid-cols-1 items-start gap-8", selectedTask && "grid-cols-[minmax(0,1fr)_400px]")}>
+          <div className="@container/list min-w-0">
             {smart !== "done" && (
               <TaskInlineAdd
-                className="border-b border-border"
+                className="mb-8 h-12 rounded-xl border border-dashed border-border-strong/70 px-3.5 transition-colors hover:border-border-strong hover:bg-muted/40 focus-within:border-solid focus-within:border-ring focus-within:bg-card"
                 defaults={{
                   projectId: projectId && projectId !== "none" ? projectId : undefined,
                   scheduledDate: smart === "today" ? clock.today : undefined,
@@ -318,158 +323,228 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
                 action={(filtering || smart !== "all") && <Button variant="outline" onClick={clearFilters}>Show all tasks</Button>}
               />
             ) : (
-              <>
-                {/* Column headings (desktop) */}
-                <div className="hidden h-9 items-center gap-3 border-b border-border px-4 text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:flex">
-                  <span className="w-[18px] shrink-0" />
-                  {codeColumn && <span className={TASK_COLS.code}>ID</span>}
-                  <span className="min-w-0 flex-1">Task</span>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className={TASK_COLS.labels}>Labels</span>
-                    <span className={TASK_COLS.priority}>Priority</span>
-                    <span className={TASK_COLS.date}>Do on</span>
-                    <span className={TASK_COLS.deadline}>Deadline</span>
-                  </div>
-                  <span className={TASK_COLS.menu} />
-                </div>
-
-                <div className="pb-1">
-                  {sections.map((s) =>
-                    s.parent && folded[s.parent] ? null : (
-                      <section key={s.key}>
-                        <SectionHeader
-                          section={s}
-                          folded={isFolded(s)}
-                          onFold={() => setFolded((f) => ({ ...f, [s.key]: !isFolded(s) }))}
-                          onAdd={s.add ? () => setAdding(s.key) : undefined}
-                        />
-                        {!isFolded(s) && (
-                          <div className="divide-y divide-border/60">
-                            {adding === s.key && (
-                              <TaskInlineAdd
-                                autoFocus
-                                defaults={s.add}
-                                onCancel={() => setAdding(null)}
-                                placeholder={`Add to ${s.title}`}
-                                className={cn("bg-primary-soft/30", s.depth === 1 && "sm:pl-9")}
-                              />
-                            )}
-                            {s.tasks.map((t) => (
-                              <TaskRow
-                                key={t.id}
-                                task={t}
-                                table
-                                codeColumn={codeColumn}
-                                onOpen={openFn}
-                                selected={selectedTask?.id === t.id}
-                                showProject={groupBy !== "project" && !projectId}
-                              />
-                            ))}
-                          </div>
+              <div>
+                {sections.map((s, i) => {
+                  if (s.parent && folded[s.parent]) return null
+                  const open = !isFolded(s)
+                  const rows = (
+                    <div className="divide-y divide-border">
+                      {adding === s.key && (
+                        <TaskInlineAdd autoFocus defaults={s.add} onCancel={() => setAdding(null)} placeholder={`Add to ${s.title}`} className="h-[52px] bg-primary-soft/40 px-4" />
+                      )}
+                      {s.tasks.map((t) => (
+                        <TaskRow key={t.id} task={t} table codeColumn={codeColumn} onOpen={openFn} selected={selectedTask?.id === t.id} showProject={groupBy !== "project" && !projectId} />
+                      ))}
+                    </div>
+                  )
+                  const header = (
+                    <SectionHeader
+                      section={s}
+                      folded={!open}
+                      onFold={() => setFolded((f) => ({ ...f, [s.key]: open }))}
+                      onAdd={s.add ? () => setAdding(s.key) : undefined}
+                    />
+                  )
+                  if (s.kind === "project") {
+                    return (
+                      <section key={s.key} className={cn(i > 0 && "mt-12")}>
+                        {header}
+                        {(s.tasks.length > 0 || adding === s.key) && (
+                          <Collapse open={open}>
+                            <div className="mt-4">
+                              <TableCard>
+                                <ColumnHead codeColumn={codeColumn} />
+                                {rows}
+                              </TableCard>
+                            </div>
+                          </Collapse>
                         )}
                       </section>
-                    ),
-                  )}
-                  {shown.length === 0 && <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Nothing open in this view. 🎉</p>}
-
-                  {done.length > 0 && (
-                    <section>
-                      <button
-                        type="button"
-                        onClick={() => setShowDone((v) => !v)}
-                        aria-expanded={showDone}
-                        className="flex w-full cursor-pointer items-center gap-2 border-t border-border px-4 py-2.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground"
-                      >
-                        <ChevronDown className={cn("size-3.5 transition-transform", !showDone && "-rotate-90")} />
-                        <CheckCircle2 className="size-3.5 text-success" />
-                        Completed <span className="font-medium tabular opacity-70">{done.length}</span>
-                      </button>
-                      {showDone && (
-                        <div className="divide-y divide-border/60 border-t border-border/60">
-                          {done.slice(0, 50).map((t) => (
-                            <TaskRow key={t.id} task={t} table codeColumn={codeColumn} onOpen={openFn} selected={selectedTask?.id === t.id} showProject={!projectId} />
-                          ))}
-                        </div>
-                      )}
+                    )
+                  }
+                  return (
+                    <section key={s.key} className={cn(i > 0 && (s.kind === "milestone" ? "mt-4" : "mt-6"), i === 0 && s.kind === "milestone" && "mt-4")}>
+                      <TableCard>
+                        {header}
+                        <Collapse open={open}>
+                          <ColumnHead codeColumn={codeColumn} />
+                          {rows}
+                        </Collapse>
+                      </TableCard>
                     </section>
-                  )}
-                </div>
-              </>
+                  )
+                })}
+                {shown.length === 0 && <p className="py-12 text-center text-sm text-muted-foreground">Nothing open in this view. 🎉</p>}
+
+                {done.length > 0 && (
+                  <section className="mt-8">
+                    <button
+                      type="button"
+                      onClick={() => setShowDone((v) => !v)}
+                      aria-expanded={showDone}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-border bg-card px-3.5 py-2 text-[13px] font-medium text-foreground/80 shadow-[var(--shadow-card)] transition-colors hover:text-foreground"
+                    >
+                      <CheckCircle2 className="size-4 text-success" />
+                      {showDone ? "Hide" : "Show"} {done.length} completed
+                      <ChevronDown className={cn("size-3.5 transition-transform duration-200", showDone && "rotate-180")} />
+                    </button>
+                    <Collapse open={showDone}>
+                      <div className="pt-3">
+                        <TableCard>
+                          <div className="divide-y divide-border">
+                            {done.slice(0, 50).map((t) => (
+                              <TaskRow key={t.id} task={t} table codeColumn={codeColumn} onOpen={openFn} selected={selectedTask?.id === t.id} showProject={!projectId} />
+                            ))}
+                          </div>
+                        </TableCard>
+                      </div>
+                    </Collapse>
+                  </section>
+                )}
+              </div>
             )}
           </div>
 
           {selectedTask && (
-            <aside className="sticky top-6 max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
+            <aside className="sticky top-6 max-h-[calc(100dvh-3rem)] animate-fade-in overflow-y-auto rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-pop)]">
               <TaskDetailPanel key={selectedTask.id} taskId={selectedTask.id} onClose={() => setSelected(null)} />
             </aside>
           )}
         </div>
       ) : (
-        <>
-          <div className={cn("@container/list rounded-2xl border border-border bg-card [overflow:clip] [&>div]:border-b-0", !(showTools || search) && "max-sm:hidden")}>{toolbar}</div>
-          <Board tasks={base.filter((t) => matchesSmart(t) || (smart !== "done" && t.status === "Completed"))} />
-        </>
+        <Board tasks={base.filter((t) => matchesSmart(t) || (smart !== "done" && t.status === "Completed"))} />
       )}
+    </div>
+  )
+}
+
+/** Smoothly opens/closes its content (animates height without measuring). */
+function Collapse({ open, children }: { open: boolean; children: React.ReactNode }) {
+  return (
+    <div className={cn("grid transition-[grid-template-rows,opacity] duration-300 ease-out", open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")} inert={!open}>
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  )
+}
+
+/** A white card that holds one group's table. */
+function TableCard({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] [overflow:clip]">{children}</div>
+}
+
+/** Column titles, aligned with TaskRow's table cells (desktop). */
+function ColumnHead({ codeColumn }: { codeColumn: boolean }) {
+  return (
+    <div className="hidden h-9 items-center gap-3 border-y border-border bg-subtle px-4 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase sm:flex">
+      <span className="w-[18px] shrink-0" />
+      {codeColumn && <span className={TASK_COLS.code}>ID</span>}
+      <span className="min-w-0 flex-1">Task</span>
+      <div className="flex shrink-0 items-center gap-4">
+        <span className={TASK_COLS.labels}>Labels</span>
+        <span className={TASK_COLS.priority}>Priority</span>
+        <span className={TASK_COLS.date}>Do on</span>
+        <span className={TASK_COLS.deadline}>Due</span>
+      </div>
+      <span className={TASK_COLS.menu} />
     </div>
   )
 }
 
 function FilterPill({ children, onClear }: { children: React.ReactNode; onClear: () => void }) {
   return (
-    <span className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-card pr-1 pl-2.5 font-medium">
+    <span className="inline-flex h-7 items-center gap-1 rounded-full bg-muted pr-1 pl-3 font-medium">
       {children}
-      <button type="button" onClick={onClear} aria-label="Remove filter" className="cursor-pointer rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+      <button type="button" onClick={onClear} aria-label="Remove filter" className="cursor-pointer rounded-full p-1 text-muted-foreground hover:bg-background hover:text-foreground">
         <X className="size-3" />
       </button>
     </span>
   )
 }
 
+/** "1. Lead Automation" → number badge + name, so milestone order reads at a glance. */
+function splitStep(title: string) {
+  const m = title.match(/^\s*(\d{1,2})[.)]\s+(.+)$/)
+  return m ? { step: m[1], name: m[2] } : { step: null, name: title }
+}
+
 function SectionHeader({ section: s, folded, onFold, onAdd }: { section: Section; folded: boolean; onFold: () => void; onAdd?: () => void }) {
   const pct = s.progress && s.progress.total ? calcProgress(s.progress.done, s.progress.total) : null
-  return (
-    <div
-      className={cn(
-        "group/sec sticky top-0 z-[2] flex items-center gap-2 border-b border-border pr-2 backdrop-blur",
-        s.depth === 0 ? "bg-subtle/95 pl-3" : "bg-card/95 pl-3 sm:pl-9",
-        s.caps ? "h-10 sm:h-9" : s.depth === 0 ? "h-11" : "h-10",
-      )}
+  const count = s.count ?? s.tasks.length
+  const addBtn = onAdd && (
+    <button
+      type="button"
+      onClick={onAdd}
+      aria-label={`Add a task to ${s.title}`}
+      title="Add a task here"
+      className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
     >
+      <Plus className="size-4" />
+    </button>
+  )
+  const bar = (w: string) =>
+    pct !== null && (
+      <span className={cn("h-1.5 overflow-hidden rounded-full bg-border", w)}>
+        <span className={cn("block h-full rounded-full transition-[width] duration-500", pct === 100 ? "bg-success" : "bg-primary")} style={{ width: `${Math.max(pct, 3)}%` }} />
+      </span>
+    )
+
+  if (s.kind === "project") {
+    return (
+      <div className="group/sec flex items-center gap-3">
+        <button type="button" onClick={onFold} aria-expanded={!folded} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">{s.icon}</span>
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <span className="truncate text-lg font-semibold tracking-tight">{s.title}</span>
+              <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-200", folded && "-rotate-90")} />
+            </span>
+            <span className="block text-[13px] text-muted-foreground tabular">
+              {count} open{s.progress && ` · ${s.progress.done} of ${s.progress.total} done`}
+            </span>
+          </span>
+        </button>
+        {pct !== null && (
+          <span className="hidden items-center gap-2.5 text-xs text-muted-foreground tabular sm:flex">
+            {bar("w-32")}
+            <span className="w-8 text-right font-medium text-foreground/80">{pct}%</span>
+          </span>
+        )}
+        {s.href && (
+          <Link href={s.href} className="hidden shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:inline-flex">
+            Open <ArrowUpRight className="size-3.5" />
+          </Link>
+        )}
+        {addBtn}
+      </div>
+    )
+  }
+
+  const { step, name } = s.kind === "milestone" ? splitStep(s.title) : { step: null, name: s.title }
+  return (
+    <div className="group/sec flex items-center gap-3 py-3 pr-2.5 pl-4 max-sm:border-b max-sm:border-border">
       <button
         type="button"
         onClick={onFold}
         aria-expanded={!folded}
-        className={cn("flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left", s.tone === "danger" ? "text-danger" : s.caps ? "text-muted-foreground" : "text-foreground")}
+        className={cn("flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left", s.tone === "danger" ? "text-danger" : "text-foreground")}
       >
-        <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", folded && "-rotate-90")} />
-        {s.icon}
-        <span className={cn("min-w-0 truncate", s.caps ? "text-xs font-semibold tracking-wide uppercase" : s.depth === 0 ? "text-sm font-semibold" : "text-[13px] font-medium")}>{s.title}</span>
-        <span className={cn("shrink-0 text-xs font-medium text-muted-foreground tabular", pct !== null && "max-sm:hidden")}>{s.count ?? s.tasks.length}</span>
+        {step ? (
+          <span className={cn("flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold tabular", pct === 100 ? "bg-success text-white" : "bg-primary-soft text-primary")}>{step}</span>
+        ) : (
+          s.icon && <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted [&_svg]:size-4">{s.icon}</span>
+        )}
+        <span className="min-w-0 truncate text-[15px] font-semibold tracking-tight">{name}</span>
+        <span className={cn("shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-foreground/70 tabular", pct !== null && "max-sm:hidden")}>{count}</span>
+        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-200", folded && "-rotate-90")} />
       </button>
       {pct !== null && (
-        <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground tabular" title={`${s.progress!.done} of ${s.progress!.total} done`}>
-          <span>{s.progress!.done}/{s.progress!.total}</span>
-          <span className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
-            <span className={cn("block h-full rounded-full", pct === 100 ? "bg-success" : "bg-primary")} style={{ width: `${Math.max(pct, 4)}%` }} />
-          </span>
-          <span className="hidden w-8 text-right sm:inline">{pct}%</span>
+        <span className="flex shrink-0 items-center gap-2.5 text-xs font-medium text-foreground/70 tabular" title={`${s.progress!.done} of ${s.progress!.total} done`}>
+          {s.progress!.done}/{s.progress!.total}
+          <span className="hidden sm:inline">done</span>
+          {bar("hidden w-24 sm:block")}
         </span>
       )}
-      {s.href && (
-        <Link href={s.href} className="hidden shrink-0 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground sm:inline">
-          Open
-        </Link>
-      )}
-      {onAdd && (
-        <button
-          type="button"
-          onClick={onAdd}
-          aria-label={`Add a task to ${s.title}`}
-          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:size-7 lg:opacity-0 lg:group-hover/sec:opacity-100 lg:focus-visible:opacity-100"
-        >
-          <Plus className="size-4" />
-        </button>
-      )}
+      {addBtn}
     </div>
   )
 }
@@ -494,9 +569,9 @@ function buildSections(
       const loose = mine.filter((t) => !t.milestoneId || !p.milestones.some((m) => m.id === t.milestoneId))
       out.push({
         key: `p:${p.id}`,
+        kind: "project",
         title: p.name,
-        depth: 0,
-        icon: <span className={cn("size-2.5 shrink-0 rounded-full", projectDot(p.id))} />,
+        icon: <span className={cn("size-3 rounded-full", projectDot(p.id))} />,
         tasks: loose,
         count: mine.length,
         progress: progressOf((t) => t.projectId === p.id),
@@ -508,8 +583,8 @@ function buildSections(
         if (!inMs.length) continue
         out.push({
           key: `m:${m.id}`,
+          kind: "milestone",
           title: m.title,
-          depth: 1,
           parent: `p:${p.id}`,
           tasks: inMs,
           progress: progressOf((t) => t.milestoneId === m.id),
@@ -520,18 +595,17 @@ function buildSections(
     // Tasks whose project isn't in the list (archived) or that have none
     const known = new Set(projects.map((p) => p.id))
     const rest = tasks.filter((t) => !t.projectId || !known.has(t.projectId))
-    if (rest.length) out.push({ key: "none", title: "No project", depth: 0, icon: <FolderKanban className="size-3.5 text-muted-foreground" />, tasks: rest, add: {} })
+    if (rest.length) out.push({ key: "none", kind: "project", title: "No project", icon: <FolderKanban className="size-4 text-muted-foreground" />, tasks: rest, add: {} })
     return out
   }
 
   if (groupBy === "priority") {
     return ["Critical", "High", "Medium", "Low"]
-      .map((p) => ({
+      .map((p): Section => ({
         key: p,
+        kind: "group",
         title: TASK_PRIORITY_META[p].label,
-        depth: 0 as const,
-        caps: true,
-        icon: <PriorityIcon priority={p} className="size-3.5" />,
+        icon: <PriorityIcon priority={p} className="size-4" />,
         tasks: tasks.filter((t) => t.priority === p),
         add: { priority: p },
       }))
@@ -539,23 +613,23 @@ function buildSections(
   }
 
   if (groupBy === "status") {
-    return [
-      { key: "InProgress", title: "In progress", icon: <CircleDot className="size-3.5 text-warning" />, tasks: tasks.filter((t) => t.status === "InProgress"), add: { status: "InProgress" } },
-      { key: "Todo", title: "To do", icon: <CircleDot className="size-3.5" />, tasks: tasks.filter((t) => t.status !== "InProgress"), add: {} },
-    ]
-      .filter((g) => g.tasks.length)
-      .map((g) => ({ ...g, depth: 0 as const, caps: true }))
+    return (
+      [
+        { key: "InProgress", kind: "group", title: "In progress", icon: <CircleDot className="text-warning" />, tasks: tasks.filter((t) => t.status === "InProgress"), add: { status: "InProgress" } },
+        { key: "Todo", kind: "group", title: "To do", icon: <CircleDot className="text-muted-foreground" />, tasks: tasks.filter((t) => t.status !== "InProgress"), add: {} },
+      ] satisfies Section[]
+    ).filter((g) => g.tasks.length)
   }
 
   // By date: Overdue · Today · Tomorrow · Next 7 days · Later · No date
   const tomorrow = addDaysToKey(clock.today, 1)
-  const buckets: { key: string; title: string; icon: React.ReactNode; tone?: "danger"; add?: AddDefaults; tasks: TaskDTO[] }[] = [
-    { key: "overdue", title: BUCKET_LABELS.overdue, icon: <AlertCircle className="size-3.5" />, tone: "danger", tasks: [] },
-    { key: "today", title: "Today", icon: <Sun className="size-3.5" />, add: { scheduledDate: clock.today }, tasks: [] },
-    { key: "tomorrow", title: "Tomorrow", icon: <CalendarDays className="size-3.5" />, add: { scheduledDate: tomorrow }, tasks: [] },
-    { key: "week", title: "Next 7 days", icon: <CalendarDays className="size-3.5" />, tasks: [] },
-    { key: "later", title: "Later", icon: <CalendarClock className="size-3.5" />, tasks: [] },
-    { key: "someday", title: BUCKET_LABELS.someday, icon: <CalendarX2 className="size-3.5" />, add: {}, tasks: [] },
+  const buckets: Section[] = [
+    { key: "overdue", kind: "group", title: BUCKET_LABELS.overdue, icon: <AlertCircle />, tone: "danger", tasks: [] },
+    { key: "today", kind: "group", title: "Today", icon: <Sun className="text-primary" />, add: { scheduledDate: clock.today }, tasks: [] },
+    { key: "tomorrow", kind: "group", title: "Tomorrow", icon: <CalendarDays className="text-muted-foreground" />, add: { scheduledDate: tomorrow }, tasks: [] },
+    { key: "week", kind: "group", title: "Next 7 days", icon: <CalendarDays className="text-muted-foreground" />, tasks: [] },
+    { key: "later", kind: "group", title: "Later", icon: <CalendarClock className="text-muted-foreground" />, tasks: [] },
+    { key: "someday", kind: "group", title: BUCKET_LABELS.someday, icon: <CalendarX2 className="text-muted-foreground" />, add: {}, tasks: [] },
   ]
   const at = (k: string) => buckets.find((b) => b.key === k)!
   for (const t of tasks) {
@@ -563,7 +637,7 @@ function buildSections(
     if (b !== "upcoming") at(b === "done" ? "later" : b).tasks.push(t)
     else at(daysBetween(clock.today, effectiveKey(t, clock)!) <= 7 ? "week" : "later").tasks.push(t)
   }
-  return buckets.filter((b) => b.tasks.length).map((b) => ({ ...b, depth: 0 as const, caps: true }))
+  return buckets.filter((b) => b.tasks.length)
 }
 
 /** ↑/↓ (or j/k) move focus through rows; on wide screens the focused task opens in the side panel. */
@@ -592,9 +666,9 @@ function useListKeyboard(tasks: TaskDTO[], selected: string | null, select?: (id
 }
 
 const COLUMNS = [
-  { status: "Todo", label: "To do" },
-  { status: "InProgress", label: "In progress" },
-  { status: "Completed", label: "Done" },
+  { status: "Todo", label: "To do", dot: "bg-muted-foreground/50" },
+  { status: "InProgress", label: "In progress", dot: "bg-warning" },
+  { status: "Completed", label: "Done", dot: "bg-success" },
 ]
 
 /** Three columns. Drag a card to change its status, or click to open it. */
@@ -605,7 +679,7 @@ function Board({ tasks }: { tasks: TaskDTO[] }) {
   const [dragOver, setDragOver] = useState<string | null>(null)
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
       {COLUMNS.map((col) => {
         const items = tasks.filter((t) => t.status === col.status).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
         const shown = col.status === "Completed" ? items.slice(0, 30) : items
@@ -626,13 +700,14 @@ function Board({ tasks }: { tasks: TaskDTO[] }) {
                 actions.update(task, { status: col.status, completedAt: col.status === "Completed" ? new Date().toISOString() : null })
               }
             }}
-            className={cn("rounded-2xl border border-border bg-subtle p-2 transition-colors", dragOver === col.status && "border-primary/50 bg-primary-soft")}
+            className={cn("rounded-3xl bg-muted/50 p-3 transition-colors", dragOver === col.status && "bg-primary-soft ring-2 ring-primary/30")}
           >
-            <div className="flex items-center justify-between px-2 pt-1 pb-2">
-              <span className="text-[13px] font-semibold">{col.label}</span>
-              <span className="text-xs text-muted-foreground tabular">{items.length}</span>
+            <div className="flex items-center gap-2 px-2 pt-1 pb-3">
+              <span className={cn("size-2 rounded-full", col.dot)} />
+              <span className="text-sm font-semibold">{col.label}</span>
+              <span className="text-[13px] text-muted-foreground tabular">{items.length}</span>
             </div>
-            <div className="min-h-24 space-y-2">
+            <div className="min-h-24 space-y-2.5">
               {shown.map((t) => {
                 const key = effectiveKey(t, clock)
                 const overdue = bucketOf(t, clock) === "overdue"
@@ -645,33 +720,27 @@ function Board({ tasks }: { tasks: TaskDTO[] }) {
                     draggable
                     onDragStart={(e) => e.dataTransfer.setData("text/task-id", t.id)}
                     onClick={() => openTask(t.id)}
-                    className="cursor-pointer rounded-xl border border-border bg-card p-3 shadow-[var(--shadow-card)] transition-colors hover:border-border-strong active:cursor-grabbing"
+                    className="cursor-pointer rounded-2xl border border-border/70 bg-card p-4 shadow-[var(--shadow-card)] transition-all hover:-translate-y-px hover:border-border-strong hover:shadow-[var(--shadow-pop)] active:cursor-grabbing"
                   >
-                    <div className="flex items-start gap-2">
-                      <PriorityIcon priority={t.priority} className="mt-0.5" />
-                      <div className={cn("min-w-0 flex-1 text-[13px] leading-snug", t.status === "Completed" && "text-muted-foreground line-through")}>
+                    <div className="flex items-start gap-2.5">
+                      <div className={cn("min-w-0 flex-1 text-sm leading-snug", t.status === "Completed" && "text-muted-foreground line-through")}>
                         {parts.subject && <p className="font-semibold">{parts.subject}</p>}
-                        <p className={cn(parts.subject && "text-muted-foreground")}>{parts.text}</p>
+                        <p className={cn(parts.subject && "mt-0.5 text-[13px] text-muted-foreground")}>{parts.text}</p>
                       </div>
-                      {parts.code && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{parts.code}</span>}
+                      {(t.priority === "High" || t.priority === "Critical") && <PriorityIcon priority={t.priority} className="mt-0.5" />}
                     </div>
-                    {(tags.length > 0 || key || subs.length > 0 || t.project) && (
-                      <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[11px] text-muted-foreground">
-                        {tags.length > 0 && <LabelList labels={tags} max={2} />}
-                        {key && t.status !== "Completed" && <span className={cn(overdue && "font-medium text-danger")}>{dayLabel(key, clock.today)}</span>}
-                        {subs.length > 0 && <span className="tabular">{subs.filter((s) => s.status === "Completed").length}/{subs.length} subtasks</span>}
-                        {t.project && (
-                          <span className="inline-flex min-w-0 items-center gap-1">
-                            <span className={cn("size-1.5 rounded-full", projectDot(t.project.id))} />
-                            <span className="truncate">{t.milestone?.title ?? t.project.name}</span>
-                          </span>
-                        )}
+                    {(tags.length > 0 || key || subs.length > 0 || parts.code) && (
+                      <div className="mt-3.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+                        {key && t.status !== "Completed" && <span className={cn("tabular", overdue && "font-medium text-danger")}>{dayLabel(key, clock.today)}</span>}
+                        <LabelList labels={tags} />
+                        {subs.length > 0 && <span className="tabular">{subs.filter((s) => s.status === "Completed").length}/{subs.length}</span>}
+                        {parts.code && <span className="ml-auto font-mono text-[11px] text-muted-foreground/70">{parts.code}</span>}
                       </div>
                     )}
                   </div>
                 )
               })}
-              {items.length === 0 && <p className="py-6 text-center text-xs text-muted-foreground">Drop tasks here</p>}
+              {items.length === 0 && <p className="rounded-2xl border border-dashed border-border py-8 text-center text-xs text-muted-foreground">Drop tasks here</p>}
             </div>
           </div>
         )

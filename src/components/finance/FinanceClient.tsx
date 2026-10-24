@@ -24,7 +24,8 @@ import { BankLogo } from "@/components/finance/BankLogo"
 import { AccountDialog } from "@/components/finance/AccountDialog"
 import { BalanceDialog } from "@/components/finance/BalanceDialog"
 import { CATEGORY_ICONS, TransactionForm } from "@/components/finance/TransactionForm"
-import type { AccountDTO, MonthSummary, TransactionDTO } from "@/types"
+import { GoldCard } from "@/components/finance/GoldSection"
+import type { AccountDTO, GoldOverviewDTO, MonthSummary, TransactionDTO } from "@/types"
 
 const TYPE_FILTERS = [
   { value: "", label: "All" },
@@ -54,11 +55,13 @@ export function FinanceClient({
   transactions: serverTx,
   summary,
   month,
+  gold,
 }: {
   accounts: AccountDTO[]
   transactions: TransactionDTO[]
   summary: MonthSummary
   month: string
+  gold?: GoldOverviewDTO | null
 }) {
   const router = useRouter()
   const { settings, quickAdd, refresh, clock } = useApp()
@@ -81,6 +84,7 @@ export function FinanceClient({
   const totalBalance = accounts.reduce((s, a) => s + a.currentBalance, 0)
   const cashTotal = cashAccounts.reduce((s, a) => s + a.currentBalance, 0)
   const bankTotal = totalBalance - cashTotal
+  const goldValue = gold?.holdings.length && gold.value !== null ? gold.value : null
   const savingsRate = summary.income > 0 ? Math.round((summary.savings / summary.income) * 100) : null
   const spendShare = summary.income > 0 ? Math.min(100, Math.round(((summary.expenses + summary.charity) / summary.income) * 100)) : null
 
@@ -154,6 +158,12 @@ export function FinanceClient({
         <div className="p-5 sm:p-6">
           <p className="text-[13px] font-medium text-muted-foreground">Total balance</p>
           <p className="mt-1 text-4xl font-semibold tracking-tight sm:text-5xl"><Amount value={totalBalance} currency={cur} /></p>
+          {goldValue !== null && (
+            <p className="mt-2 text-[13px] text-muted-foreground">
+              Net worth with gold <span className="font-semibold text-foreground"><Amount value={Math.round(totalBalance + goldValue)} currency={cur} /></span>
+              <span className="text-muted-foreground/70"> · gold {formatCurrency(Math.round(goldValue), cur, { compact: true })}</span>
+            </p>
+          )}
           <div className="mt-5 grid grid-cols-2 gap-3">
             {/* Cash in hand — its own spot */}
             {cashAccounts.length > 0 ? (
@@ -253,6 +263,7 @@ export function FinanceClient({
                 </div>
               </Card>
             ))}
+            <GoldCard gold={gold ?? null} accounts={accounts} />
           </div>
         )}
       </section>
@@ -304,7 +315,8 @@ export function FinanceClient({
                         ? { icon: <SlidersHorizontal />, className: "bg-muted text-muted-foreground", sign: t.type === "Income" ? "+" : "−" }
                         : TYPE_STYLE[t.type] ?? TYPE_STYLE.Expense
                       const icon = !adjustment && t.category && CATEGORY_ICONS[t.category] && t.type === "Expense" ? CATEGORY_ICONS[t.category] : style.icon
-                      const where = t.type === "Transfer" ? `${t.fromAccount?.name ?? "?"} → ${t.toAccount?.name ?? "?"}` : t.account?.name
+                      const other = t.category === "Gold" ? "Gold" : "?"
+                      const where = t.type === "Transfer" ? `${t.fromAccount?.name ?? other} → ${t.toAccount?.name ?? other}` : t.account?.name
                       return (
                         <div
                           key={t.id}

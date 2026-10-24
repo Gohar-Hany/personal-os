@@ -4,13 +4,15 @@ import { useMemo, useState } from "react"
 import { Check, Plus, Tag, X } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { labelTone, parseTags } from "@/lib/tasks/taskLogic"
+import { labelDot, parseTags } from "@/lib/tasks/taskLogic"
 import { Picker, triggerClass } from "@/components/ui/picker"
 import type { TaskDTO } from "@/types"
 
+/** A label as a quiet pill: colour dot + name. */
 export function LabelChip({ label, onRemove, className }: { label: string; onRemove?: () => void; className?: string }) {
   return (
-    <span className={cn("inline-flex h-5 max-w-full shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] leading-none font-medium whitespace-nowrap", labelTone(label), className)}>
+    <span className={cn("inline-flex h-6 max-w-full shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 text-xs leading-none whitespace-nowrap text-foreground/80", className)}>
+      <span className={cn("size-1.5 shrink-0 rounded-full", labelDot(label))} />
       <span className="truncate">{label}</span>
       {onRemove && (
         <button
@@ -29,17 +31,20 @@ export function LabelChip({ label, onRemove, className }: { label: string; onRem
   )
 }
 
-/** A row of chips that never wraps: the first few, then "+2". */
-export function LabelList({ labels, max = 3, className }: { labels: string[]; max?: number; className?: string }) {
+/** Labels inside a list row: just a dot and the name, the first few then "+2". */
+export function LabelList({ labels, max = 2, className }: { labels: string[]; max?: number; className?: string }) {
   if (!labels.length) return null
   const shown = labels.slice(0, max)
   const rest = labels.length - shown.length
   return (
-    <span className={cn("flex min-w-0 items-center gap-1", className)} title={labels.join(", ")}>
+    <span className={cn("flex min-w-0 items-center gap-1.5 text-xs", className)} title={labels.join(", ")}>
       {shown.map((l) => (
-        <LabelChip key={l} label={l} />
+        <span key={l} className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md bg-muted px-2 font-medium whitespace-nowrap text-foreground/80">
+          <span className={cn("size-1.5 rounded-full", labelDot(l))} />
+          {l}
+        </span>
       ))}
-      {rest > 0 && <span className="shrink-0 text-[11px] font-medium text-muted-foreground tabular">+{rest}</span>}
+      {rest > 0 && <span className="shrink-0 px-0.5 font-medium text-muted-foreground tabular">+{rest}</span>}
     </span>
   )
 }

@@ -50,7 +50,7 @@ export function TodayClient({
   tasks: TaskDTO[]
   habits: TodayHabitDTO[]
   focus: FocusProject | null
-  money: { totalBalance: number; cash: number | null; spentToday: number; monthExpenses: number; monthIncome: number }
+  money: { totalBalance: number; cash: number | null; spentToday: number; monthExpenses: number; monthIncome: number; gold?: number | null }
   goals: GoalDTO[]
   location: PrayerLocation
   quranPage?: number
@@ -359,6 +359,13 @@ export function TodayClient({
               <div>
                 <p className="text-xs text-muted-foreground">Total balance</p>
                 <p className="text-2xl font-semibold tracking-tight"><Amount value={money.totalBalance} currency={settings.currency} /></p>
+                {money.gold != null && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    <span className="mr-1.5 inline-block size-1.5 rounded-full bg-amber-500 align-middle" />
+                    Gold {formatCurrency(Math.round(money.gold), settings.currency, { compact: true })} · net worth{" "}
+                    <span className="font-medium text-foreground">{formatCurrency(Math.round(money.totalBalance + money.gold), settings.currency, { compact: true })}</span>
+                  </p>
+                )}
               </div>
               <div className="grid grid-cols-3 gap-2 text-[13px]">
                 <MiniStat label="Cash" value={money.cash !== null ? formatCurrency(money.cash, settings.currency, { compact: true }) : "—"} />

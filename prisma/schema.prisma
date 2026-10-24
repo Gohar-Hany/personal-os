@@ -201,6 +201,35 @@ model Transaction {
 }
 
 // ─────────────────────────────────────────
+// FINANCE — GOLD
+// ─────────────────────────────────────────
+model GoldHolding {
+  id            String    @id @default(cuid())
+  kind          String    @default("Jewelry") // Jewelry | Coin (gold pound, 8 g of 21K) | Bar
+  karat         Int       @default(21)        // 24 | 21 | 18
+  grams         Float
+  name          String?
+  boughtAt      DateTime?
+  paid          Float?    // everything paid incl. workmanship & stamp — the cost basis
+  transactionId String?   // purchase recorded as a transfer out of an account
+  soldAt        DateTime?
+  soldFor       Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+/// One gold price per day (in the user's zone): the latest live fetch, or a price typed in by hand.
+model GoldPrice {
+  id        String   @id @default(cuid())
+  date      String   @unique // "2026-10-24"
+  gram24    Float    // EGP per gram of 24K
+  source    String   // live | manual
+  usdPerOz  Float?
+  egpPerUsd Float?
+  fetchedAt DateTime @default(now())
+}
+
+// ─────────────────────────────────────────
 // INBOX
 // ─────────────────────────────────────────
 model InboxItem {

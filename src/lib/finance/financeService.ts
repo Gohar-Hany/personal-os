@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { userClock } from "@/lib/userTime"
+import { getGoldOverview } from "@/lib/finance/goldService"
 import type { TransactionType, AccountType, Currency } from "@/types"
 
 // ─── ACCOUNTS ─────────────────────────────────────────────
@@ -226,15 +227,17 @@ export async function getMonthSummary(month?: string) {
 export async function getMoneySnapshot() {
   const clock = await userClock()
   const { start: today, end: tomorrow } = clock.day(clock.today)
-  const [accounts, month, spentToday] = await Promise.all([
+  const [accounts, month, spentToday, gold] = await Promise.all([
     getAccounts(),
     getMonthSummary(),
     prisma.transaction.aggregate({
       where: { type: "Expense", date: { gte: today, lt: tomorrow }, ...NOT_ADJUSTMENT },
       _sum: { amount: true },
     }),
+    getGoldOverview({ refresh: false }).catch(() => null),
   ])
   return {
+    gold: gold?.holdings.length && gold.value !== null ? gold.value : null,
     totalBalance: accounts.reduce((s, a) => s + a.currentBalance, 0),
     cash: accounts.some(isCashAccount) ? accounts.filter(isCashAccount).reduce((s, a) => s + a.currentBalance, 0) : null,
     spentToday: spentToday._sum.amount ?? 0,

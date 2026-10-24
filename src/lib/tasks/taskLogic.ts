@@ -141,27 +141,20 @@ export function parseTags(raw: string | string[] | null | undefined): string[] {
   }
 }
 
-const LABEL_TONES: Record<string, string> = {
-  hot: "bg-danger-soft text-danger",
-  urgent: "bg-danger-soft text-danger",
-  warm: "bg-warning-soft text-warning",
-  cold: "bg-info-soft text-info",
-  lost: "bg-muted text-muted-foreground line-through decoration-muted-foreground/40",
-  lead: "bg-primary-soft text-primary",
+const LABEL_DOTS: Record<string, string> = {
+  hot: "bg-red-500",
+  urgent: "bg-red-500",
+  warm: "bg-amber-500",
+  cold: "bg-sky-500",
+  lost: "bg-zinc-400",
+  lead: "bg-indigo-500",
 }
-const LABEL_PALETTE = [
-  "bg-violet-500/12 text-violet-700 dark:text-violet-300",
-  "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  "bg-sky-500/12 text-sky-700 dark:text-sky-300",
-  "bg-fuchsia-500/12 text-fuchsia-700 dark:text-fuchsia-300",
-  "bg-teal-500/12 text-teal-700 dark:text-teal-300",
-  "bg-orange-500/12 text-orange-700 dark:text-orange-300",
-]
+const LABEL_PALETTE = ["bg-violet-500", "bg-emerald-500", "bg-teal-500", "bg-fuchsia-500", "bg-orange-500", "bg-cyan-500", "bg-lime-500"]
 
-/** A stable colour per label; deal temperature (Hot/Warm/Cold) gets meaningful ones. */
-export function labelTone(label: string) {
+/** A stable dot colour per label; deal temperature (Hot/Warm/Cold) gets meaningful ones. */
+export function labelDot(label: string) {
   const k = label.toLowerCase()
-  if (LABEL_TONES[k]) return LABEL_TONES[k]
+  if (LABEL_DOTS[k]) return LABEL_DOTS[k]
   let h = 0
   for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0
   return LABEL_PALETTE[Math.abs(h) % LABEL_PALETTE.length]

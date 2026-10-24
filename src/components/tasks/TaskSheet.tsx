@@ -125,7 +125,7 @@ function TaskDetails({
   }
 
   return (
-    <div className="space-y-5 pt-1">
+    <div className="space-y-6 pt-1">
       {/* Where this task lives: Project › Milestone */}
       <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
         {task.project ? (
@@ -152,7 +152,7 @@ function TaskDetails({
           status={task.status}
           onToggle={() => save({ status: done ? "Todo" : "Completed" })}
           label={done ? "Mark as not done" : "Mark as done"}
-          className="mt-1"
+          className="-mt-1"
         />
         <textarea
           value={title}
@@ -174,7 +174,7 @@ function TaskDetails({
       </div>
 
       {/* Properties */}
-      <div className="space-y-3.5 rounded-xl border border-border bg-subtle p-3.5">
+      <div className="space-y-1 border-y border-border/70 py-3">
         <Prop icon={<CircleDot />} label="Status">
           <Segmented
             size="xs"
@@ -302,8 +302,8 @@ function TaskDetails({
 
 function Prop({ icon, label, children }: { icon: React.ReactNode; label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[92px_1fr] items-center gap-2">
-      <span className="flex items-center gap-1.5 text-xs text-muted-foreground [&_svg]:size-3.5">
+    <div className="grid min-h-10 grid-cols-[104px_1fr] items-center gap-2">
+      <span className="flex items-center gap-2 text-[13px] text-muted-foreground [&_svg]:size-4">
         {icon}
         {label}
       </span>

@@ -217,3 +217,40 @@ export interface SettingsDTO {
   theme: string
   prayerMethod: string
 }
+
+// ─── GOLD ─────────────────────────────────────────────────
+export interface GoldHoldingDTO {
+  id: string
+  kind: "Jewelry" | "Coin" | "Bar" | string
+  karat: number
+  grams: number
+  name?: string | null
+  boughtAt?: string | null
+  /** Total paid incl. workmanship & stamp. */
+  paid?: number | null
+  transactionId?: string | null
+  /** At today's price; null when no price is known yet. */
+  value: number | null
+  createdAt: string
+}
+
+export interface GoldQuoteDTO {
+  date: string
+  /** EGP per gram of 24K. */
+  gram24: number
+  source: "live" | "manual"
+  fetchedAt: string
+  previous: number | null
+  stale: boolean
+}
+
+export interface GoldOverviewDTO {
+  holdings: GoldHoldingDTO[]
+  quote: GoldQuoteDTO | null
+  value: number | null
+  pureGrams: number
+  pureGramsJewelry: number
+  grams: number
+  gain: number | null
+  paid: number | null
+}
