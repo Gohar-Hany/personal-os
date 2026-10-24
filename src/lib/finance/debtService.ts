@@ -2,8 +2,9 @@ import { prisma } from "@/lib/prisma"
 import { BadRequest } from "@/lib/http"
 
 // Money owed either way.
-//  • they_owe — I paid for someone. The money leaves my account as a transfer
-//    (it isn't my spending) and comes back as a transfer when they pay me.
+//  • they_owe — I paid for someone. It's a normal expense in its category (so it
+//    reads like any other in the list) but isn't counted as my spending — see
+//    countedWhere(). When they pay, a transfer brings the money back.
 //  • i_owe — someone paid for me. Nothing moves until I pay them; that payment
 //    is my expense, in the category of what they bought.
 
@@ -14,10 +15,10 @@ export type Direction = (typeof DIRECTIONS)[number]
 const what = (d: { description?: string | null; category?: string | null }) => d.description || d.category || "money"
 
 export async function getDebts() {
-  const open = await prisma.debt.findMany({ where: { settledAt: null }, orderBy: [{ date: "desc" }, { createdAt: "desc" }] })
-  const recent = await prisma.debt.findMany({ where: { settledAt: { not: null } }, orderBy: { settledAt: "desc" }, take: 10 })
+  const all = await prisma.debt.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }] })
+  const open = all.filter((d) => !d.settledAt)
   const sum = (dir: Direction) => open.filter((d) => d.direction === dir).reduce((s, d) => s + d.amount, 0)
-  return { open, recent, owedToMe: sum("they_owe"), iOwe: sum("i_owe") }
+  return { all, owedToMe: sum("they_owe"), iOwe: sum("i_owe") }
 }
 
 export async function createDebt(data: {
@@ -44,15 +45,7 @@ export async function createDebt(data: {
       if (!account) throw new BadRequest("Account not found")
       currency = account.currency
       const t = await tx.transaction.create({
-        data: {
-          type: "Transfer",
-          amount: data.amount,
-          currency,
-          category: OWED_CATEGORY,
-          fromAccountId: accountId,
-          date,
-          description: `${what(rest)} for ${rest.person.trim()}`,
-        },
+        data: { type: "Expense", amount: data.amount, currency, category: rest.category || "Other", accountId, date, description: rest.description || null },
       })
       transactionId = t.id
     }
@@ -70,6 +63,11 @@ export async function settleDebt(id: string, { accountId, date }: { accountId?: 
   if (!debt) throw new BadRequest("Not found")
   if (debt.settledAt) throw new BadRequest("Already settled")
   const when = date ?? new Date()
+  if (accountId === undefined && debt.transactionId) {
+    // (purchases logged before this was an expense were transfers: fromAccountId)
+    const bought = await prisma.transaction.findUnique({ where: { id: debt.transactionId }, select: { accountId: true, fromAccountId: true } })
+    accountId = bought?.accountId ?? bought?.fromAccountId ?? null
+  }
 
   return prisma.$transaction(async (tx) => {
     let settleTransactionId: string | null = null

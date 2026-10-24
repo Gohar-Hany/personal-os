@@ -185,7 +185,20 @@ export async function updateTransaction(id: string, data: Partial<{
 }
 
 export async function deleteTransaction(id: string) {
-  return prisma.transaction.delete({ where: { id } })
+  const debts = await prisma.debt.findMany({ where: { OR: [{ transactionId: id }, { settleTransactionId: id }] } })
+  return prisma.$transaction(async (tx) => {
+    for (const d of debts) {
+      if (d.transactionId === id) {
+        // The purchase itself is gone: drop the debt and any repayment
+        if (d.settleTransactionId) await tx.transaction.deleteMany({ where: { id: d.settleTransactionId } })
+        await tx.debt.delete({ where: { id: d.id } })
+      } else {
+        // Only the repayment/payment is gone: the debt is open again
+        await tx.debt.update({ where: { id: d.id }, data: { settledAt: null, settleTransactionId: null } })
+      }
+    }
+    return tx.transaction.delete({ where: { id } })
+  })
 }
 
 // ─── SUMMARIES ─────────────────────────────────────────────
@@ -194,16 +207,27 @@ export async function deleteTransaction(id: string) {
 export const ADJUSTMENT = "Adjustment"
 export const NOT_ADJUSTMENT = { OR: [{ category: null }, { category: { not: ADJUSTMENT } }] }
 
+/**
+ * Transactions that count as real income/spending: no balance corrections, and no
+ * expenses someone else is paying back (those are money owed to me, not my spending).
+ */
+export async function countedWhere() {
+  const owed = await prisma.debt.findMany({ where: { direction: "they_owe", transactionId: { not: null } }, select: { transactionId: true } })
+  const ids = owed.map((d) => d.transactionId!)
+  return ids.length ? { AND: [NOT_ADJUSTMENT, { id: { notIn: ids } }] } : NOT_ADJUSTMENT
+}
+
 export const isCashAccount = (a: { type: string }) => a.type === "Cash"
 
 export async function getMonthSummary(month?: string) {
   month ??= await currentMonth()
   const { start, end } = await monthRange(month)
+  const counted = await countedWhere()
   const [byType, byCategory] = await Promise.all([
-    prisma.transaction.groupBy({ by: ["type"], where: { date: { gte: start, lt: end }, ...NOT_ADJUSTMENT }, _sum: { amount: true } }),
+    prisma.transaction.groupBy({ by: ["type"], where: { date: { gte: start, lt: end }, ...counted }, _sum: { amount: true } }),
     prisma.transaction.groupBy({
       by: ["category"],
-      where: { type: "Expense", date: { gte: start, lt: end }, ...NOT_ADJUSTMENT },
+      where: { type: "Expense", date: { gte: start, lt: end }, ...counted },
       _sum: { amount: true },
     }),
   ])
@@ -227,11 +251,12 @@ export async function getMonthSummary(month?: string) {
 export async function getMoneySnapshot() {
   const clock = await userClock()
   const { start: today, end: tomorrow } = clock.day(clock.today)
+  const counted = await countedWhere()
   const [accounts, month, spentToday, gold] = await Promise.all([
     getAccounts(),
     getMonthSummary(),
     prisma.transaction.aggregate({
-      where: { type: "Expense", date: { gte: today, lt: tomorrow }, ...NOT_ADJUSTMENT },
+      where: { type: "Expense", date: { gte: today, lt: tomorrow }, ...counted },
       _sum: { amount: true },
     }),
     getGoldOverview({ refresh: false }).catch(() => null),

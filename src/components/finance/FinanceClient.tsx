@@ -7,7 +7,7 @@ import { dayLabel as relLabel, keyOf } from "@/lib/tasks/taskLogic"
 import { parseDateKey } from "@/lib/dates"
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChevronLeft, ChevronRight, HeartHandshake, Landmark, Pencil,
-  PieChart, Plus, Receipt, Scale, Search, SlidersHorizontal, Trash2,
+  Check, Hourglass, PieChart, Plus, Receipt, Scale, Search, SlidersHorizontal, Trash2, Undo2,
 } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, formatCurrency } from "@/lib/utils"
@@ -25,8 +25,7 @@ import { AccountDialog } from "@/components/finance/AccountDialog"
 import { BalanceDialog } from "@/components/finance/BalanceDialog"
 import { CATEGORY_ICONS, TransactionForm } from "@/components/finance/TransactionForm"
 import { GoldCard } from "@/components/finance/GoldSection"
-import { DebtsCard } from "@/components/finance/DebtsCard"
-import type { AccountDTO, DebtsOverviewDTO, GoldOverviewDTO, MonthSummary, TransactionDTO } from "@/types"
+import type { AccountDTO, DebtDTO, DebtsOverviewDTO, GoldOverviewDTO, MonthSummary, TransactionDTO } from "@/types"
 
 const TYPE_FILTERS = [
   { value: "", label: "All" },
@@ -91,11 +90,42 @@ export function FinanceClient({
   const savingsRate = summary.income > 0 ? Math.round((summary.savings / summary.income) * 100) : null
   const spendShare = summary.income > 0 ? Math.min(100, Math.round(((summary.expenses + summary.charity) / summary.income) * 100)) : null
 
+  // Money owed either way, shown right on the transactions
+  const debtList = useMemo(() => debts?.all ?? [], [debts])
+  const debtByTx = useMemo(() => new Map(debtList.filter((d) => d.transactionId).map((d) => [d.transactionId!, d])), [debtList])
+  const openDebts = debtList.filter((d) => !d.settledAt)
+  const pending = typeFilter === "Pending"
+
+  const refund = async (d: DebtDTO) => {
+    try {
+      await api(`/api/debts/${d.id}`, { method: "PATCH", body: { settle: {} } })
+      toast.success(`${d.person} paid you back · ${formatCurrency(d.amount, d.currency || cur)}`, {
+        label: "Undo",
+        onClick: () => api(`/api/debts/${d.id}`, { method: "PATCH", body: { reopen: true } }).then(refresh),
+      })
+      refresh()
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+  const markPaid = async (d: DebtDTO, accountId: string) => {
+    try {
+      await api(`/api/debts/${d.id}`, { method: "PATCH", body: { settle: { accountId } } })
+      toast.success(`Paid ${d.person} · ${formatCurrency(d.amount, d.currency || cur)}`, {
+        label: "Undo",
+        onClick: () => api(`/api/debts/${d.id}`, { method: "PATCH", body: { reopen: true } }).then(refresh),
+      })
+      refresh()
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return transactions.filter(
       (t) =>
-        (!typeFilter || (t.type === typeFilter && t.category !== "Adjustment")) &&
+        (!typeFilter || typeFilter === "Pending" || (t.type === typeFilter && t.category !== "Adjustment")) &&
         (!q || [t.description, t.category, t.account?.name].some((v) => v?.toLowerCase().includes(q))),
     )
   }, [transactions, typeFilter, search])
@@ -267,7 +297,6 @@ export function FinanceClient({
               </Card>
             ))}
             <GoldCard gold={gold ?? null} accounts={accounts} />
-            <DebtsCard debts={debts ?? null} accounts={accounts} />
           </div>
         )}
       </section>
@@ -294,9 +323,28 @@ export function FinanceClient({
               {TYPE_FILTERS.map((f) => (
                 <Chip key={f.value} active={typeFilter === f.value} onClick={() => setTypeFilter(f.value)}>{f.label}</Chip>
               ))}
+              {(openDebts.length > 0 || pending) && (
+                <Chip active={pending} onClick={() => setTypeFilter(pending ? "" : "Pending")}>
+                  <Hourglass /> Pending <span className="tabular opacity-70">{openDebts.length}</span>
+                </Chip>
+              )}
             </div>
           </div>
-          {byDay.length === 0 ? (
+          {openDebts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setTypeFilter(pending ? "" : "Pending")}
+              className="flex w-full cursor-pointer flex-wrap items-center gap-x-4 gap-y-1 border-t border-border bg-warning-soft/40 px-4 py-2.5 text-left text-[13px] transition-colors hover:bg-warning-soft/70"
+            >
+              <span className="inline-flex items-center gap-1.5 font-medium"><Hourglass className="size-3.5 text-warning" /> Pending</span>
+              {debts!.owedToMe > 0 && <span>You&apos;re owed <span className="font-semibold text-success tabular">{formatCurrency(debts!.owedToMe, cur)}</span></span>}
+              {debts!.iOwe > 0 && <span>You owe <span className="font-semibold text-danger tabular">{formatCurrency(debts!.iOwe, cur)}</span></span>}
+              <span className="ml-auto text-xs font-medium text-muted-foreground">{pending ? "Show all" : "View"} →</span>
+            </button>
+          )}
+          {pending ? (
+            <PendingList debts={openDebts} accounts={accounts} currency={cur} onRefund={refund} onPaid={markPaid} />
+          ) : byDay.length === 0 ? (
             <EmptyState
               icon={<Receipt />}
               title={transactions.length ? "Nothing matches" : `No transactions in ${format(monthDate, "MMMM")}`}
@@ -306,7 +354,7 @@ export function FinanceClient({
           ) : (
             <div className="pb-2">
               {byDay.map((g) => {
-                const spent = g.items.filter((t) => t.type === "Expense" && t.category !== "Adjustment").reduce((s, t) => s + t.amount, 0)
+                const spent = g.items.filter((t) => t.type === "Expense" && t.category !== "Adjustment" && debtByTx.get(t.id)?.direction !== "they_owe").reduce((s, t) => s + t.amount, 0)
                 return (
                   <div key={g.key}>
                     <div className="sticky top-0 z-[1] flex items-center justify-between border-y border-border bg-subtle/95 px-4 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur">
@@ -321,6 +369,7 @@ export function FinanceClient({
                       const icon = !adjustment && t.category && CATEGORY_ICONS[t.category] && t.type === "Expense" ? CATEGORY_ICONS[t.category] : style.icon
                       const other = t.category === "Gold" ? "Gold" : t.category === "Owed to me" ? "Owed" : "?"
                       const where = t.type === "Transfer" ? `${t.fromAccount?.name ?? other} → ${t.toAccount?.name ?? other}` : t.account?.name
+                      const debt = debtByTx.get(t.id)
                       return (
                         <div
                           key={t.id}
@@ -348,8 +397,29 @@ export function FinanceClient({
                                 </span>
                               )}
                             </div>
+                            {debt?.direction === "they_owe" && (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                                {debt.settledAt ? (
+                                  <span className="inline-flex items-center gap-1 font-medium text-success"><Check className="size-3.5" /> {debt.person} paid you back</span>
+                                ) : (
+                                  <>
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 font-medium text-warning"><Hourglass className="size-3" /> {debt.person} will pay you back</span>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        refund(debt)
+                                      }}
+                                      className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-full border border-border-strong bg-card px-2.5 font-semibold text-foreground transition-colors hover:border-success hover:bg-success-soft hover:text-success"
+                                    >
+                                      <Undo2 className="size-3" /> Refund
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
-                          <span className={cn("text-sm font-semibold tabular", t.type === "Income" && !adjustment && "text-success")}>
+                          <span className={cn("text-sm font-semibold tabular", t.type === "Income" && !adjustment && "text-success", debt?.direction === "they_owe" && "text-muted-foreground")}>
                             {style.sign}
                             {formatCurrency(t.amount, t.currency || cur)}
                           </span>
@@ -422,6 +492,71 @@ function Stat({ label, value, dot, className }: { label: string; value: React.Re
         {label}
       </p>
       <p className={cn("mt-1 truncate text-lg font-semibold tracking-tight tabular", className)}>{value}</p>
+    </div>
+  )
+}
+
+/** Everything not settled yet: what people owe you (Refund) and what you owe (Paid). */
+function PendingList({
+  debts,
+  accounts,
+  currency,
+  onRefund,
+  onPaid,
+}: {
+  debts: DebtDTO[]
+  accounts: AccountDTO[]
+  currency: string
+  onRefund: (d: DebtDTO) => void
+  onPaid: (d: DebtDTO, accountId: string) => void
+}) {
+  const { quickAdd } = useApp()
+  if (!debts.length) {
+    return <EmptyState icon={<Check />} title="All settled" description="Nobody owes you, and you don't owe anyone." />
+  }
+  const sorted = [...accounts].sort((a, b) => Number(isCash(b)) - Number(isCash(a)))
+  return (
+    <div className="divide-y divide-border border-t border-border">
+      {debts.map((d) => {
+        const owedToMe = d.direction === "they_owe"
+        return (
+          <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-[18px]", owedToMe ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
+              {(d.category && CATEGORY_ICONS[d.category]) || <Hourglass />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{d.description || d.category || (owedToMe ? "Paid for someone" : "Someone paid for me")}</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {owedToMe ? <><span className="font-medium text-foreground">{d.person}</span> will pay you back</> : <>You owe <span className="font-medium text-foreground">{d.person}</span></>}
+                {" · "}
+                {format(new Date(d.date), "MMM d")}
+              </p>
+            </div>
+            <span className={cn("shrink-0 text-sm font-semibold tabular", owedToMe ? "text-success" : "text-danger")}>{formatCurrency(d.amount, d.currency || currency)}</span>
+            {owedToMe ? (
+              <Button size="xs" variant="outline" onClick={() => onRefund(d)} className="shrink-0">
+                <Undo2 /> Refund
+              </Button>
+            ) : (
+              <Menu
+                label="Paid from"
+                align="end"
+                trigger={
+                  <Button size="xs" variant="outline" className="shrink-0">
+                    <Check /> Paid
+                  </Button>
+                }
+                items={[{ heading: "Paid from" }, ...sorted.map((a) => ({ label: isCash(a) ? "Cash in hand" : a.name, icon: <BankLogo name={a.name} type={a.type} size="sm" className="size-5 rounded-md [&_svg]:size-3" />, hint: formatCurrency(a.currentBalance, a.currency, { compact: true }), onSelect: () => onPaid(d, a.id) }))]}
+              />
+            )}
+          </div>
+        )
+      })}
+      <div className="px-4 py-3">
+        <Button size="xs" variant="ghost" onClick={() => quickAdd({ mode: "money" })}>
+          <Plus /> Add one
+        </Button>
+      </div>
     </div>
   )
 }

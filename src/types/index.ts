@@ -268,11 +268,11 @@ export interface DebtDTO {
   date: string
   transactionId?: string | null
   settledAt?: string | null
+  settleTransactionId?: string | null
 }
 
 export interface DebtsOverviewDTO {
-  open: DebtDTO[]
-  recent: DebtDTO[]
+  all: DebtDTO[]
   owedToMe: number
   iOwe: number
 }

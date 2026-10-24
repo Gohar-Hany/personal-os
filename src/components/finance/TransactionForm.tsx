@@ -59,10 +59,10 @@ export function TransactionForm({
   const [date, setDate] = useState(initial ? dateKey(new Date(initial.date)) : dateKey())
   const [note, setNote] = useState(initial?.description ?? "")
   const [saving, setSaving] = useState(false)
-  // "Someone will pay me back": recorded as money owed to me, not as my spending
-  const [payBack, setPayBack] = useState(false)
+  // Who paid: just me · me, and they'll pay me back · they paid, and I owe them
+  const [who, setWho] = useState<"me" | "they_owe" | "i_owe">("me")
   const [person, setPerson] = useState("")
-  const owed = !initial && type === "Expense" && payBack
+  const owed = !initial && type === "Expense" && who !== "me"
   const amountRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -129,10 +129,12 @@ export function TransactionForm({
     setSaving(true)
     if (owed) {
       try {
-        await api("/api/debts", { body: { direction: "they_owe", person, amount: value, description: note || null, category: category || null, accountId: accountId || null, date } })
+        await api("/api/debts", {
+          body: { direction: who, person, amount: value, description: note || null, category: category || null, accountId: who === "they_owe" ? accountId || null : null, date },
+        })
         refresh()
         onSaved()
-        toast.success(`Saved — ${person.trim()} owes you ${formatCurrency(value, settings.currency)}`)
+        toast.success(who === "they_owe" ? `Saved · ${person.trim()} will pay you back ${formatCurrency(value, settings.currency)}` : `Saved · you owe ${person.trim()} ${formatCurrency(value, settings.currency)}`)
       } catch (err) {
         toast.error((err as Error).message)
       } finally {
@@ -220,7 +222,7 @@ export function TransactionForm({
         </div>
 
         {/* Live Balance Preview (Before & After) */}
-        {type !== "Transfer" && selectedAccount && (
+        {type !== "Transfer" && selectedAccount && !(owed && who === "i_owe") && (
           <div className="mt-3.5 inline-flex flex-wrap items-center justify-center gap-1.5 rounded-xl border border-border/80 bg-background/90 px-3.5 py-1.5 text-xs shadow-xs">
             <span className="text-muted-foreground font-medium">{isCash(selectedAccount) ? "Cash in hand" : selectedAccount.name}:</span>
             <span className="tabular font-medium text-muted-foreground">{formatCurrency(balanceBefore, selectedAccount.currency)}</span>
@@ -279,20 +281,38 @@ export function TransactionForm({
         </div>
       )}
 
-      {/* Paid for someone else */}
+      {/* Who paid */}
       {type === "Expense" && !initial && (
-        <div className={cn("rounded-xl border p-3 transition-colors", payBack ? "border-primary/40 bg-primary-soft/40" : "border-border")}>
-          <button type="button" role="switch" aria-checked={payBack} onClick={() => setPayBack((v) => !v)} className="flex w-full cursor-pointer items-center justify-between gap-3 text-left">
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium">Someone will pay me back</span>
-              <span className="block text-xs text-muted-foreground">Leaves your account now, comes back when they pay — not counted as your spending</span>
-            </span>
-            <span className={cn("relative h-6 w-10 shrink-0 rounded-full transition-colors", payBack ? "bg-primary" : "bg-border-strong")}>
-              <span className={cn("absolute top-0.5 size-5 rounded-full bg-white shadow transition-all", payBack ? "left-[18px]" : "left-0.5")} />
-            </span>
-          </button>
-          {payBack && (
-            <Input autoFocus value={person} onChange={(e) => setPerson(e.target.value)} placeholder="Who? e.g. Ahmed, Mom" aria-label="Who will pay you back" className="mt-3" />
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-muted p-1">
+            {([
+              ["me", "Just me"],
+              ["they_owe", "They'll pay me back"],
+              ["i_owe", "Someone paid for me"],
+            ] as const).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setWho(v)}
+                aria-pressed={who === v}
+                className={cn(
+                  "min-h-9 cursor-pointer rounded-lg px-2 py-1.5 text-xs leading-tight font-medium transition-all",
+                  who === v ? "bg-card text-foreground shadow-[var(--shadow-card)]" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {who !== "me" && (
+            <div className="space-y-1.5">
+              <Input autoFocus value={person} onChange={(e) => setPerson(e.target.value)} placeholder={who === "they_owe" ? "Who will pay you back?" : "Who paid for it?"} aria-label="Person" />
+              <p className="text-xs text-muted-foreground">
+                {who === "they_owe"
+                  ? "Taken from your account now. When they pay, press Refund on it and the money comes back — it isn't counted as your spending."
+                  : "Nothing leaves your accounts yet. Press Paid when you pay them back."}
+              </p>
+            </div>
           )}
         </div>
       )}
@@ -304,7 +324,7 @@ export function TransactionForm({
           <div className="flex justify-center text-muted-foreground"><ArrowDown className="size-4" /></div>
           <AccountPicker label="To" accounts={accounts} value={toId} onChange={setToId} disabledId={fromId} calcMap={calcMap} />
         </div>
-      ) : (
+      ) : owed && who === "i_owe" ? null : (
         <AccountPicker label={type === "Income" ? "Into" : "Paid from"} accounts={accounts} value={accountId} onChange={setAccountId} calcMap={calcMap} />
       )}
 
@@ -323,7 +343,9 @@ export function TransactionForm({
           : initial
             ? "Save changes"
             : owed
-              ? `${person.trim() || "They"} owe${person.trim() ? "s" : ""} you ${value > 0 ? formatCurrency(value, settings.currency) : ""}`.trim()
+              ? who === "they_owe"
+                ? `Add · ${person.trim() || "they"} will pay you back`
+                : `Add · you owe ${person.trim() || "them"}${value > 0 ? ` ${formatCurrency(value, settings.currency)}` : ""}`
               : value > 0
                 ? `Add ${formatCurrency(value, settings.currency)} ${type.toLowerCase()}`
                 : `Add ${type.toLowerCase()}`}

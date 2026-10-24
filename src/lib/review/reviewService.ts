@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { NOT_ADJUSTMENT } from "@/lib/finance/financeService"
+import { countedWhere } from "@/lib/finance/financeService"
 import { parseDateKey } from "@/lib/dates"
 import { addDaysToKey, dateOnlyInstant } from "@/lib/zone"
 import { userClock } from "@/lib/userTime"
@@ -26,7 +26,7 @@ export async function getWeekStats(weekKey?: string): Promise<WeekStats> {
       where: { completed: true, date: { gte: weekKey, lte: addDaysToKey(weekKey, 6) } },
       select: { habitId: true, date: true },
     }),
-    prisma.transaction.groupBy({ by: ["type"], where: { date: { gte: weekStart, lt: weekEnd }, ...NOT_ADJUSTMENT }, _sum: { amount: true } }),
+    prisma.transaction.groupBy({ by: ["type"], where: { date: { gte: weekStart, lt: weekEnd }, ...(await countedWhere()) }, _sum: { amount: true } }),
   ])
 
   const done = new Set(logs.map((l) => `${l.habitId}_${l.date}`))
