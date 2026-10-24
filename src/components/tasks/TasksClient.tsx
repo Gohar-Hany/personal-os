@@ -144,6 +144,18 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
   // Side panel on wide screens, sheet elsewhere
   const openFn = useCallback((id: string) => (wide ? setSelected(id) : openTask(id)), [wide, openTask])
   const selectedTask = wide && selected ? all.find((t) => t.id === selected) : undefined
+  // Esc closes the side panel (unless a field or a popup inside it has focus)
+  useEffect(() => {
+    if (!selected) return
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement
+      if (e.key !== "Escape" || document.querySelector("[role=dialog], [data-radix-popper-content-wrapper]")) return
+      if (["INPUT", "TEXTAREA"].includes(t.tagName)) return t.blur()
+      setSelected(null)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [selected])
   useListKeyboard(ordered, selected, wide ? setSelected : undefined)
 
   const filtering = !!(search || projectId || labels.length)
@@ -406,7 +418,12 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
           </div>
 
           {selectedTask && (
-            <aside className="sticky top-6 max-h-[calc(100dvh-3rem)] animate-fade-in overflow-y-auto rounded-3xl border border-border bg-card p-6 shadow-[var(--shadow-pop)]">
+            <aside className="sticky top-6 max-h-[calc(100dvh-3rem)] animate-fade-in overflow-y-auto rounded-3xl border border-border-strong bg-card p-6 shadow-[var(--shadow-pop)]">
+              <div className="-mt-2 -mr-2 mb-1 flex justify-end">
+                <Button size="icon-sm" variant="ghost" onClick={() => setSelected(null)} aria-label="Close details" title="Close (Esc)">
+                  <X />
+                </Button>
+              </div>
               <TaskDetailPanel key={selectedTask.id} taskId={selectedTask.id} onClose={() => setSelected(null)} />
             </aside>
           )}
@@ -490,15 +507,15 @@ function SectionHeader({ section: s, folded, onFold, onAdd }: { section: Section
 
   if (s.kind === "project") {
     return (
-      <div className="group/sec flex items-center gap-3">
+      <div className="group/sec flex items-center gap-3 rounded-2xl border border-border-strong bg-card py-3.5 pr-3 pl-4 shadow-[var(--shadow-card)]">
         <button type="button" onClick={onFold} aria-expanded={!folded} className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">{s.icon}</span>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-subtle">{s.icon}</span>
           <span className="min-w-0">
             <span className="flex items-center gap-2">
               <span className="truncate text-lg font-semibold tracking-tight">{s.title}</span>
               <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform duration-200", folded && "-rotate-90")} />
             </span>
-            <span className="block text-[13px] text-muted-foreground tabular">
+            <span className="block text-[13px] font-medium text-foreground/70 tabular">
               {count} open{s.progress && ` · ${s.progress.done} of ${s.progress.total} done`}
             </span>
           </span>
