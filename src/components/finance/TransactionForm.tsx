@@ -43,7 +43,7 @@ export function TransactionForm({
 }: {
   initial?: TransactionDTO | null
   accounts?: AccountDTO[]
-  onSaved: (tx: TransactionDTO) => void
+  onSaved: (tx?: TransactionDTO) => void
   autoFocus?: boolean
 }) {
   const { settings, refresh } = useApp()
@@ -59,6 +59,10 @@ export function TransactionForm({
   const [date, setDate] = useState(initial ? dateKey(new Date(initial.date)) : dateKey())
   const [note, setNote] = useState(initial?.description ?? "")
   const [saving, setSaving] = useState(false)
+  // "Someone will pay me back": recorded as money owed to me, not as my spending
+  const [payBack, setPayBack] = useState(false)
+  const [person, setPerson] = useState("")
+  const owed = !initial && type === "Expense" && payBack
   const amountRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -80,7 +84,7 @@ export function TransactionForm({
 
   const categories = type === "Income" ? INCOME_CATEGORIES : type === "Expense" ? EXPENSE_CATEGORIES : []
   const value = Number(amount)
-  const valid = value > 0 && (type !== "Transfer" || (fromId && toId && fromId !== toId))
+  const valid = value > 0 && (type !== "Transfer" || (fromId && toId && fromId !== toId)) && (!owed || person.trim() !== "")
   const typeMeta = TYPES.find((t) => t.value === type)!
 
   // Live calculation of balance before & after
@@ -123,6 +127,19 @@ export function TransactionForm({
     e?.preventDefault()
     if (!valid || saving) return
     setSaving(true)
+    if (owed) {
+      try {
+        await api("/api/debts", { body: { direction: "they_owe", person, amount: value, description: note || null, category: category || null, accountId: accountId || null, date } })
+        refresh()
+        onSaved()
+        toast.success(`Saved — ${person.trim()} owes you ${formatCurrency(value, settings.currency)}`)
+      } catch (err) {
+        toast.error((err as Error).message)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
     const body = {
       type,
       amount: value,
@@ -262,6 +279,24 @@ export function TransactionForm({
         </div>
       )}
 
+      {/* Paid for someone else */}
+      {type === "Expense" && !initial && (
+        <div className={cn("rounded-xl border p-3 transition-colors", payBack ? "border-primary/40 bg-primary-soft/40" : "border-border")}>
+          <button type="button" role="switch" aria-checked={payBack} onClick={() => setPayBack((v) => !v)} className="flex w-full cursor-pointer items-center justify-between gap-3 text-left">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium">Someone will pay me back</span>
+              <span className="block text-xs text-muted-foreground">Leaves your account now, comes back when they pay — not counted as your spending</span>
+            </span>
+            <span className={cn("relative h-6 w-10 shrink-0 rounded-full transition-colors", payBack ? "bg-primary" : "bg-border-strong")}>
+              <span className={cn("absolute top-0.5 size-5 rounded-full bg-white shadow transition-all", payBack ? "left-[18px]" : "left-0.5")} />
+            </span>
+          </button>
+          {payBack && (
+            <Input autoFocus value={person} onChange={(e) => setPerson(e.target.value)} placeholder="Who? e.g. Ahmed, Mom" aria-label="Who will pay you back" className="mt-3" />
+          )}
+        </div>
+      )}
+
       {/* Accounts */}
       {type === "Transfer" ? (
         <div className="space-y-2">
@@ -283,7 +318,15 @@ export function TransactionForm({
       </div>
 
       <Button type="submit" variant="primary" size="md" className="h-12 w-full rounded-xl text-[15px]" disabled={!valid || saving}>
-        {saving ? "Saving…" : initial ? "Save changes" : value > 0 ? `Add ${formatCurrency(value, settings.currency)} ${type.toLowerCase()}` : `Add ${type.toLowerCase()}`}
+        {saving
+          ? "Saving…"
+          : initial
+            ? "Save changes"
+            : owed
+              ? `${person.trim() || "They"} owe${person.trim() ? "s" : ""} you ${value > 0 ? formatCurrency(value, settings.currency) : ""}`.trim()
+              : value > 0
+                ? `Add ${formatCurrency(value, settings.currency)} ${type.toLowerCase()}`
+                : `Add ${type.toLowerCase()}`}
       </Button>
     </form>
   )

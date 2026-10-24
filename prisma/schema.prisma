@@ -218,6 +218,28 @@ model GoldHolding {
   updatedAt     DateTime  @updatedAt
 }
 
+// ─────────────────────────────────────────
+// FINANCE — DEBTS (money owed either way)
+// ─────────────────────────────────────────
+/// "They owe me": I paid for someone; the purchase left my account as a transfer
+/// (not my spending) and comes back when they pay. "I owe": someone paid for me;
+/// nothing moves until I pay, which is then recorded as my expense.
+model Debt {
+  id                  String    @id @default(cuid())
+  direction           String    // they_owe | i_owe
+  person              String
+  amount              Float
+  currency            String    @default("EGP")
+  description         String?
+  category            String?
+  date                DateTime  @default(now())
+  transactionId       String?   // they_owe: the purchase transfer out of my account
+  settledAt           DateTime?
+  settleTransactionId String?   // the repayment (they_owe) or my payment (i_owe)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
 /// One gold price per day (in the user's zone): the latest live fetch, or a price typed in by hand.
 model GoldPrice {
   id        String   @id @default(cuid())

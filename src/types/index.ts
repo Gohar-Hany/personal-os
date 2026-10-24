@@ -254,3 +254,25 @@ export interface GoldOverviewDTO {
   gain: number | null
   paid: number | null
 }
+
+// ─── DEBTS ────────────────────────────────────────────────
+export interface DebtDTO {
+  id: string
+  /** they_owe: someone owes me · i_owe: I owe someone */
+  direction: "they_owe" | "i_owe" | string
+  person: string
+  amount: number
+  currency: string
+  description?: string | null
+  category?: string | null
+  date: string
+  transactionId?: string | null
+  settledAt?: string | null
+}
+
+export interface DebtsOverviewDTO {
+  open: DebtDTO[]
+  recent: DebtDTO[]
+  owedToMe: number
+  iOwe: number
+}

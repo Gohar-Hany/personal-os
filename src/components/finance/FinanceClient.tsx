@@ -25,7 +25,8 @@ import { AccountDialog } from "@/components/finance/AccountDialog"
 import { BalanceDialog } from "@/components/finance/BalanceDialog"
 import { CATEGORY_ICONS, TransactionForm } from "@/components/finance/TransactionForm"
 import { GoldCard } from "@/components/finance/GoldSection"
-import type { AccountDTO, GoldOverviewDTO, MonthSummary, TransactionDTO } from "@/types"
+import { DebtsCard } from "@/components/finance/DebtsCard"
+import type { AccountDTO, DebtsOverviewDTO, GoldOverviewDTO, MonthSummary, TransactionDTO } from "@/types"
 
 const TYPE_FILTERS = [
   { value: "", label: "All" },
@@ -56,12 +57,14 @@ export function FinanceClient({
   summary,
   month,
   gold,
+  debts,
 }: {
   accounts: AccountDTO[]
   transactions: TransactionDTO[]
   summary: MonthSummary
   month: string
   gold?: GoldOverviewDTO | null
+  debts?: DebtsOverviewDTO | null
 }) {
   const router = useRouter()
   const { settings, quickAdd, refresh, clock } = useApp()
@@ -264,6 +267,7 @@ export function FinanceClient({
               </Card>
             ))}
             <GoldCard gold={gold ?? null} accounts={accounts} />
+            <DebtsCard debts={debts ?? null} accounts={accounts} />
           </div>
         )}
       </section>
@@ -315,7 +319,7 @@ export function FinanceClient({
                         ? { icon: <SlidersHorizontal />, className: "bg-muted text-muted-foreground", sign: t.type === "Income" ? "+" : "−" }
                         : TYPE_STYLE[t.type] ?? TYPE_STYLE.Expense
                       const icon = !adjustment && t.category && CATEGORY_ICONS[t.category] && t.type === "Expense" ? CATEGORY_ICONS[t.category] : style.icon
-                      const other = t.category === "Gold" ? "Gold" : "?"
+                      const other = t.category === "Gold" ? "Gold" : t.category === "Owed to me" ? "Owed" : "?"
                       const where = t.type === "Transfer" ? `${t.fromAccount?.name ?? other} → ${t.toAccount?.name ?? other}` : t.account?.name
                       return (
                         <div
