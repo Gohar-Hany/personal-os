@@ -1,7 +1,15 @@
 import type { Metadata, Viewport } from "next"
-import { Inter } from "next/font/google"
+import { Amiri, Inter } from "next/font/google"
 import { ThemeProvider } from "@/components/providers/ThemeProvider"
 import "./globals.css"
+
+// Classic Naskh for Quran and adhkar text — far more readable than a generic serif
+const amiri = Amiri({
+  subsets: ["arabic"],
+  weight: ["400", "700"],
+  display: "swap",
+  variable: "--font-amiri",
+})
 
 const inter = Inter({
   subsets: ["latin"],
@@ -41,7 +49,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning className={inter.variable}>
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${amiri.variable}`}>
       <body className="font-sans text-sm">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
           {children}

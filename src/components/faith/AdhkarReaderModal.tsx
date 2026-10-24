@@ -1,10 +1,11 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { Check, ChevronLeft, ChevronRight, RotateCcw, Sparkles, X } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { Check, ChevronLeft, ChevronRight, ListChecks, RotateCcw, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { haptic } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
+import { ReaderShell } from "@/components/faith/ReaderShell"
 import { MORNING_ADHKAR, EVENING_ADHKAR, type DhikrItem } from "@/lib/faith/adhkarData"
 
 interface AdhkarReaderModalProps {
@@ -12,248 +13,267 @@ interface AdhkarReaderModalProps {
   onClose: () => void
   type: "morning" | "evening"
   onComplete?: () => void
+  /** Day key — progress is remembered per day on this device. */
+  today?: string
+  /** Already marked done today (e.g. from another device). */
+  alreadyDone?: boolean
 }
 
-export function AdhkarReaderModal({ isOpen, onClose, type, onComplete }: AdhkarReaderModalProps) {
+type Remaining = Record<string, number>
+
+const storageKey = (type: string, day: string) => `adhkar:${type}:${day}`
+
+function loadProgress(type: string, day: string | undefined): Remaining | null {
+  if (!day) return null
+  try {
+    const raw = localStorage.getItem(storageKey(type, day))
+    return raw ? (JSON.parse(raw) as Remaining) : null
+  } catch {
+    return null
+  }
+}
+
+/** Today's remembered progress for a set of adhkar (for the Today page cards). */
+export function adhkarProgress(type: "morning" | "evening", day: string) {
+  const list = type === "morning" ? MORNING_ADHKAR : EVENING_ADHKAR
+  const saved = loadProgress(type, day)
+  const done = saved ? list.filter((d) => (saved[d.id] ?? d.count) <= 0).length : 0
+  return { done, total: list.length }
+}
+
+export function AdhkarReaderModal({ isOpen, onClose, type, onComplete, today, alreadyDone }: AdhkarReaderModalProps) {
   const list = type === "morning" ? MORNING_ADHKAR : EVENING_ADHKAR
   const title = type === "morning" ? "أذكار الصباح" : "أذكار المساء"
 
-  const [currentIndex, setCurrentIndex] = useState(0)
-  // Track remaining counts for each dhikr
-  const [counts, setCounts] = useState<Record<string, number>>({})
-  const [completedDhikrs, setCompletedDhikrs] = useState<Record<string, boolean>>({})
-  const [isDoneAll, setIsDoneAll] = useState(false)
-  const [hasNotifiedComplete, setHasNotifiedComplete] = useState(false)
+  const fresh = () => Object.fromEntries(list.map((d) => [d.id, d.count])) as Remaining
+  const [remaining, setRemaining] = useState<Remaining>(fresh)
+  const [index, setIndex] = useState(0)
+  const [showList, setShowList] = useState(false)
+  const [notified, setNotified] = useState(false)
 
-  // Initialize or reset when modal opens
+  // Restore the day's progress each time the reader opens (state adjusted during render)
+  const openKey = isOpen ? `${type}:${today ?? ""}` : null
+  const [openedFor, setOpenedFor] = useState<string | null>(null)
+  if (openKey !== openedFor) {
+    setOpenedFor(openKey)
+    if (openKey) {
+      const saved = loadProgress(type, today)
+      const restored = { ...fresh(), ...(saved ?? {}) }
+      if (!saved && alreadyDone) for (const d of list) restored[d.id] = 0
+      setRemaining(restored)
+      const firstOpen = list.findIndex((d) => (restored[d.id] ?? d.count) > 0)
+      setIndex(firstOpen === -1 ? 0 : firstOpen)
+      setShowList(false)
+      setNotified(!!alreadyDone)
+    }
+  }
+
+  // Remember progress on this device for today
   useEffect(() => {
-    if (isOpen) {
-      setCurrentIndex(0)
-      const initialCounts: Record<string, number> = {}
-      list.forEach((d) => {
-        initialCounts[d.id] = d.count
-      })
-      setCounts(initialCounts)
-      setCompletedDhikrs({})
-      setIsDoneAll(false)
-      setHasNotifiedComplete(false)
+    if (!isOpen || !today) return
+    try {
+      localStorage.setItem(storageKey(type, today), JSON.stringify(remaining))
+      window.dispatchEvent(new Event("adhkar-progress"))
+    } catch {}
+  }, [remaining, isOpen, type, today])
+
+  const doneCount = useMemo(() => list.filter((d) => remaining[d.id] <= 0).length, [list, remaining])
+  const allDone = doneCount === list.length
+  const item: DhikrItem = list[index] ?? list[0]
+  const left = remaining[item.id] ?? item.count
+  const itemDone = left <= 0
+
+  const go = (i: number) => setIndex(Math.max(0, Math.min(list.length - 1, i)))
+  const nextOpenAfter = (i: number, state: Remaining) => {
+    for (let k = 1; k <= list.length; k++) {
+      const j = (i + k) % list.length
+      if (state[list[j].id] > 0) return j
     }
-  }, [isOpen, list])
+    return -1
+  }
 
-  if (!isOpen) return null
-
-  const currentItem: DhikrItem = list[currentIndex] || list[0]
-  const currentRemaining = counts[currentItem.id] ?? currentItem.count
-  const isCurrentFinished = currentRemaining <= 0 || completedDhikrs[currentItem.id]
-
-  const totalDhikrs = list.length
-  const completedCount = Object.values(completedDhikrs).filter(Boolean).length
-  const progressPct = Math.round((completedCount / totalDhikrs) * 100)
-
-  const handleTap = () => {
-    if (isCurrentFinished) return
-
-    haptic(12)
-    const nextCount = Math.max(0, currentRemaining - 1)
-    setCounts((prev) => ({ ...prev, [currentItem.id]: nextCount }))
-
-    if (nextCount === 0) {
+  const count = () => {
+    if (itemDone) return
+    haptic(10)
+    const next = { ...remaining, [item.id]: left - 1 }
+    setRemaining(next)
+    if (left - 1 === 0) {
       haptic(25)
-      setCompletedDhikrs((prev) => {
-        const updated = { ...prev, [currentItem.id]: true }
-        // Check if all are done
-        const totalDone = Object.values(updated).filter(Boolean).length
-        if (totalDone === totalDhikrs) {
-          setIsDoneAll(true)
-          if (!hasNotifiedComplete) {
-            setHasNotifiedComplete(true)
-            onComplete?.()
-          }
+      const j = nextOpenAfter(index, next)
+      if (j === -1) {
+        if (!notified) {
+          setNotified(true)
+          onComplete?.()
         }
-        return updated
-      })
-
-      // Auto advance to next unfinished dhikr after 400ms
-      setTimeout(() => {
-        if (currentIndex < totalDhikrs - 1) {
-          setCurrentIndex((idx) => idx + 1)
-        }
-      }, 350)
+      } else {
+        setTimeout(() => setIndex(j), 450)
+      }
     }
   }
 
-  const handleResetCurrent = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setCounts((prev) => ({ ...prev, [currentItem.id]: currentItem.count }))
-    setCompletedDhikrs((prev) => ({ ...prev, [currentItem.id]: false }))
-    setIsDoneAll(false)
+  const resetAll = () => {
+    setRemaining(fresh())
+    setIndex(0)
+    setNotified(true) // don't log the habit twice
   }
 
-  const handlePrev = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (currentIndex > 0) setCurrentIndex((i) => i - 1)
-  }
+  // Keyboard: Space/Enter counts, arrows move (RTL: left = next)
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault()
+        count()
+      } else if (e.key === "ArrowLeft") go(index + 1)
+      else if (e.key === "ArrowRight") go(index - 1)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
 
-  const handleNext = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (currentIndex < totalDhikrs - 1) setCurrentIndex((i) => i + 1)
-  }
+  const ringPct = ((item.count - Math.max(0, left)) / item.count) * 100
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-background/80 backdrop-blur-md animate-fade-in" dir="rtl">
-      <div className="relative flex flex-col w-full max-w-xl h-[92vh] max-h-[800px] rounded-3xl border border-border bg-card shadow-2xl overflow-hidden">
-        {/* Top Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-card/60 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-primary-soft text-primary font-semibold text-sm">
-              {currentIndex + 1} / {totalDhikrs}
-            </span>
-            <div>
-              <h2 className="text-base font-bold text-foreground leading-tight">{title}</h2>
-              <p className="text-xs text-muted-foreground">{completedCount} من {totalDhikrs} مكتمل</p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            aria-label="إغلاق"
-          >
-            <X className="size-5" />
-          </button>
-        </div>
-
-        {/* Progress bar */}
-        <div className="h-1 w-full bg-muted">
-          <div
-            className="h-full bg-gradient-to-l from-primary to-success transition-all duration-300"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-
-        {/* Body Content */}
-        {isDoneAll ? (
-          <div className="flex flex-1 flex-col items-center justify-center p-6 text-center space-y-4 animate-scale-in">
-            <div className="flex size-20 items-center justify-center rounded-full bg-success-soft text-success shadow-lg">
-              <Sparkles className="size-10" />
-            </div>
-            <h3 className="text-2xl font-bold text-foreground">تقبّل الله طاعتكم ✨</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              تم إتمام جميع {title} بنجاح وحفظها كإنجاز في وردك اليومي. بارك الله في يومك ورزقك بركته وحفظه.
-            </p>
-            <div className="pt-4">
-              <Button variant="primary" size="md" onClick={onClose} className="rounded-xl px-8">
-                <Check className="size-4 ml-1.5" /> تم وإنهاء
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-1 flex-col overflow-y-auto p-5 sm:p-7 space-y-5">
-            {/* Dhikr Title if available */}
-            {currentItem.title && (
-              <div className="flex items-center justify-between">
-                <span className="inline-flex items-center rounded-lg bg-primary-soft px-2.5 py-1 text-xs font-semibold text-primary">
-                  {currentItem.title}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleResetCurrent}
-                  title="إعادة تعيين الذكر الحالي"
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
-                >
-                  <RotateCcw className="size-3.5" /> إعادة البدء
-                </button>
-              </div>
-            )}
-
-            {/* Dhikr Arabic Text Card (Tappable on mobile/desktop) */}
-            <div
-              onClick={handleTap}
-              className={cn(
-                "relative flex-1 flex flex-col justify-center rounded-2xl p-6 sm:p-7 border transition-all cursor-pointer select-none",
-                isCurrentFinished
-                  ? "border-success/40 bg-success-soft/30 shadow-sm"
-                  : "border-border bg-subtle hover:border-primary/40 hover:bg-card active:scale-[0.99] shadow-sm"
-              )}
+    <ReaderShell
+      open={isOpen}
+      onClose={onClose}
+      title={title}
+      subtitle={`${doneCount} من ${list.length} مكتمل`}
+      progress={(doneCount / list.length) * 100}
+      actions={
+        <button
+          type="button"
+          onClick={() => setShowList((v) => !v)}
+          aria-pressed={showList}
+          aria-label="كل الأذكار"
+          title="كل الأذكار"
+          className={cn("flex size-10 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground", showList && "bg-primary-soft text-primary")}
+        >
+          <ListChecks className="size-5" />
+        </button>
+      }
+      footer={
+        !showList && !allDone ? (
+          <div className="flex items-center justify-between gap-4">
+            <NavButton label="السابق" onClick={() => go(index - 1)} disabled={index === 0}><ChevronRight className="size-5" /></NavButton>
+            <button
+              type="button"
+              onClick={count}
+              aria-label={itemDone ? "تم" : `اضغط للعدّ، المتبقي ${left}`}
+              className="group relative flex size-[88px] shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform active:scale-95"
             >
-              <div className="space-y-4 text-center my-auto">
-                <p className="font-serif text-lg sm:text-xl md:text-2xl font-medium leading-[2.2] tracking-wide text-foreground whitespace-pre-line">
-                  {currentItem.text}
-                </p>
-
-                {/* Virtue / Benefit */}
-                {currentItem.virtue && (
-                  <div className="inline-block rounded-xl bg-success-soft/80 border border-success/20 px-3.5 py-1.5 text-xs font-medium text-success">
-                    🌿 {currentItem.virtue}
-                  </div>
-                )}
-
-                {/* Source Reference */}
-                {currentItem.reference && (
-                  <p className="text-[11px] text-muted-foreground/80 italic">
-                    {currentItem.reference}
-                  </p>
-                )}
-              </div>
-
-              {/* Tappable Helper hint */}
-              <div className="pt-4 text-center">
-                <span className="text-[11px] text-muted-foreground/60">
-                  {isCurrentFinished ? "تم إتمام هذا الذكر ✓" : "اضغط في أي مكان لاحتساب الذكر"}
-                </span>
-              </div>
-            </div>
-
-            {/* Counter and Navigation Bar */}
-            <div className="flex items-center justify-between gap-3 pt-1">
-              <button
-                type="button"
-                onClick={handlePrev}
-                disabled={currentIndex === 0}
-                className="flex size-12 cursor-pointer items-center justify-center rounded-2xl border border-border bg-card text-foreground transition-colors hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                aria-label="الذكر السابق"
-              >
-                <ChevronRight className="size-5" />
-              </button>
-
-              {/* Central Big Counter Button */}
-              <button
-                type="button"
-                onClick={handleTap}
-                className={cn(
-                  "flex-1 h-14 flex items-center justify-center gap-3 rounded-2xl font-bold text-lg transition-all active:scale-95 shadow-md",
-                  isCurrentFinished
-                    ? "bg-success text-white hover:bg-success-hover"
-                    : "bg-primary text-primary-foreground hover:bg-primary-hover shadow-[0_4px_16px_-4px_var(--primary)]"
-                )}
-              >
-                {isCurrentFinished ? (
-                  <>
-                    <Check className="size-6 stroke-[3]" />
-                    <span>مكتمل ({currentItem.count})</span>
-                  </>
+              <CounterRing pct={ringPct} done={itemDone} />
+              <span className="relative flex flex-col items-center leading-none">
+                {itemDone ? (
+                  <Check className="size-8 text-success" strokeWidth={3} />
                 ) : (
                   <>
-                    <span>تبقّى: {currentRemaining}</span>
-                    <span className="text-xs font-normal opacity-80">(المطلوب {currentItem.count})</span>
+                    <span className="text-3xl font-semibold tabular">{left}</span>
+                    <span className="mt-1 text-[10px] text-muted-foreground">من {item.count}</span>
                   </>
                 )}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleNext}
-                disabled={currentIndex === totalDhikrs - 1}
-                className="flex size-12 cursor-pointer items-center justify-center rounded-2xl border border-border bg-card text-foreground transition-colors hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed"
-                aria-label="الذكر التالي"
-              >
-                <ChevronLeft className="size-5" />
-              </button>
-            </div>
+              </span>
+            </button>
+            <NavButton label="التالي" onClick={() => go(index + 1)} disabled={index === list.length - 1}><ChevronLeft className="size-5" /></NavButton>
           </div>
-        )}
-      </div>
-    </div>
+        ) : undefined
+      }
+    >
+      {allDone && !showList ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="flex size-20 items-center justify-center rounded-full bg-success-soft text-success">
+            <Sparkles className="size-10" />
+          </div>
+          <h3 className="font-arabic text-3xl font-bold">تقبّل الله منك</h3>
+          <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">أتممت {title} كاملة، وتم تسجيلها في يومك.</p>
+          <div className="flex gap-2 pt-2">
+            <Button variant="primary" size="md" onClick={onClose} className="rounded-xl px-8">تم</Button>
+            <Button variant="outline" size="md" onClick={resetAll} className="rounded-xl"><RotateCcw /> قراءة مرة أخرى</Button>
+          </div>
+        </div>
+      ) : showList ? (
+        <div className="h-full overflow-y-auto p-3 sm:p-4">
+          {list.map((d, i) => {
+            const l = remaining[d.id] ?? d.count
+            return (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => {
+                  setIndex(i)
+                  setShowList(false)
+                }}
+                className={cn("flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-3 text-right hover:bg-muted", i === index && "bg-primary-soft")}
+              >
+                <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular", l <= 0 ? "bg-success text-white" : "bg-muted text-muted-foreground")}>
+                  {l <= 0 ? <Check className="size-4" strokeWidth={3} /> : i + 1}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-arabic text-lg leading-snug">{d.title ?? d.text.slice(0, 40)}</span>
+                  <span className="block text-xs text-muted-foreground">{l <= 0 ? "تم" : d.count > 1 ? `متبقي ${l} من ${d.count}` : "مرة واحدة"}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      ) : (
+        <div
+          onClick={count}
+          className={cn("h-full cursor-pointer overflow-y-auto select-none", itemDone && "cursor-default")}
+          role="button"
+          aria-label="اضغط في أي مكان للعدّ"
+          tabIndex={-1}
+        >
+          <article className="mx-auto flex min-h-full max-w-xl flex-col justify-center gap-5 px-5 py-8 text-center sm:px-8">
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <span className="tabular">{index + 1} / {list.length}</span>
+              {item.title && <span className="rounded-full bg-primary-soft px-3 py-1 font-arabic text-sm font-bold text-primary">{item.title}</span>}
+            </div>
+            <p className={cn("font-arabic text-[23px] leading-[2.15] whitespace-pre-line text-foreground sm:text-[27px]", itemDone && "text-muted-foreground")}>{item.text}</p>
+            {item.virtue && (
+              <p className="mx-auto max-w-md rounded-2xl bg-success-soft px-4 py-2.5 font-arabic text-base leading-relaxed text-success">{item.virtue}</p>
+            )}
+            {item.reference && <p className="text-xs text-muted-foreground">{item.reference}</p>}
+            <p className="text-[11px] text-muted-foreground/70">{itemDone ? "تم هذا الذكر ✓" : "اضغط في أي مكان للعدّ"}</p>
+          </article>
+        </div>
+      )}
+    </ReaderShell>
+  )
+}
+
+function CounterRing({ pct, done }: { pct: number; done: boolean }) {
+  const r = 40
+  const c = 2 * Math.PI * r
+  return (
+    <svg viewBox="0 0 88 88" className="absolute inset-0 -rotate-90">
+      <circle cx="44" cy="44" r={r} fill="none" strokeWidth="6" className="stroke-muted" />
+      <circle
+        cx="44"
+        cy="44"
+        r={r}
+        fill="none"
+        strokeWidth="6"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={c - (pct / 100) * c}
+        className={cn("transition-[stroke-dashoffset] duration-300", done ? "stroke-success" : "stroke-primary")}
+      />
+    </svg>
+  )
+}
+
+function NavButton({ children, label, onClick, disabled }: { children: React.ReactNode; label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      className="flex h-12 flex-1 cursor-pointer items-center justify-center gap-1 rounded-2xl border border-border bg-card text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+    >
+      {children}
+      <span>{label}</span>
+    </button>
   )
 }

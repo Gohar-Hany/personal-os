@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Check, LocateFixed } from "lucide-react"
 import { api } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { CURRENCIES } from "@/lib/constants"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -136,8 +137,16 @@ export function SettingsClient({ settings }: { settings: SettingsDTO | null }) {
         </div>
       </Section>
 
-      <div className="sticky bottom-20 flex items-center justify-end gap-3 lg:bottom-4">
-        {!dirty && (
+      {/* Phones: a floating bar appears only when there's something to save. Desktop: always-visible footer. */}
+      <div
+        className={cn(
+          "sticky bottom-24 z-10 items-center justify-end gap-3 rounded-2xl border border-border bg-card/95 p-2 pl-4 shadow-[var(--shadow-pop)] backdrop-blur lg:bottom-4 lg:flex lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:backdrop-blur-none",
+          dirty ? "flex" : "hidden",
+        )}
+      >
+        {dirty ? (
+          <span className="mr-auto text-xs text-muted-foreground lg:hidden">Unsaved changes</span>
+        ) : (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Check className="size-3.5" /> All changes saved
           </span>

@@ -20,15 +20,28 @@ export function Menu({
   label = "More actions",
   align = "end",
   className,
+  open: openProp,
+  onOpenChange,
+  sheetOnly,
 }: {
   items: MenuItem[]
   trigger?: React.ReactNode
   label?: string
   align?: "start" | "end"
   className?: string
+  /** Controlled open state (e.g. opened by a long-press). */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  /** Phones: render only the action sheet, no visible trigger. */
+  sheetOnly?: boolean
 }) {
   const mobile = useIsMobile()
-  const [open, setOpen] = useState(false)
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = (o: boolean) => {
+    setOpenState(o)
+    onOpenChange?.(o)
+  }
   const triggerEl = trigger ?? (
     <button
       type="button"
@@ -47,14 +60,14 @@ export function Menu({
   if (mobile) {
     return (
       <>
-        <Slot
+        {!sheetOnly && <Slot
           onClick={(e: React.MouseEvent) => {
             e.stopPropagation()
             setOpen(true)
           }}
         >
           {triggerEl}
-        </Slot>
+        </Slot>}
         <Dialog open={open} onOpenChange={setOpen} title={label}>
           <div className="-mx-2 space-y-0.5">
             {items.map((item, i) => {
@@ -89,6 +102,8 @@ export function Menu({
       </>
     )
   }
+
+  if (sheetOnly) return null
 
   return (
     <DropdownMenu.Root modal={false}>

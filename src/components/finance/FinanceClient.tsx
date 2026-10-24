@@ -2,7 +2,9 @@
 
 import { useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { addMonths, format, isSameDay, isToday, isYesterday } from "date-fns"
+import { addMonths, format } from "date-fns"
+import { dayLabel as relLabel, keyOf } from "@/lib/tasks/taskLogic"
+import { parseDateKey } from "@/lib/dates"
 import {
   ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, ChevronLeft, ChevronRight, HeartHandshake, Landmark, Pencil,
   PieChart, Plus, Receipt, Scale, Search, SlidersHorizontal, Trash2,
@@ -41,10 +43,10 @@ const TYPE_STYLE: Record<string, { icon: React.ReactNode; className: string; sig
 
 const isCash = (a: AccountDTO) => a.type === "Cash"
 
-function dayLabel(d: Date) {
-  if (isToday(d)) return "Today"
-  if (isYesterday(d)) return "Yesterday"
-  return format(d, "EEEE, MMM d")
+/** "Today", "Yesterday", else "Wednesday, Oct 21" — from zone-aware day keys (no hydration drift). */
+function dayLabel(key: string, today: string) {
+  const rel = relLabel(key, today)
+  return rel === "Today" || rel === "Yesterday" ? rel : format(parseDateKey(key), "EEEE, MMM d")
 }
 
 export function FinanceClient({
@@ -59,7 +61,7 @@ export function FinanceClient({
   month: string
 }) {
   const router = useRouter()
-  const { settings, quickAdd, refresh } = useApp()
+  const { settings, quickAdd, refresh, clock } = useApp()
   const toast = useToast()
   const confirm = useConfirm()
   const [transactions, setTransactions] = useSynced(serverTx)
@@ -71,7 +73,7 @@ export function FinanceClient({
 
   const cur = settings.currency
   const monthDate = new Date(`${month}-01T00:00:00`)
-  const isCurrentMonth = month === format(new Date(), "yyyy-MM")
+  const isCurrentMonth = month === clock.today.slice(0, 7)
   const goMonth = (delta: number) => router.push(`/finance?month=${format(addMonths(monthDate, delta), "yyyy-MM")}`)
 
   const cashAccounts = accounts.filter(isCash)
@@ -92,15 +94,15 @@ export function FinanceClient({
   }, [transactions, typeFilter, search])
 
   const byDay = useMemo(() => {
-    const groups: { date: Date; items: TransactionDTO[] }[] = []
+    const groups: { key: string; items: TransactionDTO[] }[] = []
     for (const t of filtered) {
-      const d = new Date(t.date)
+      const key = keyOf(t.date, clock)!
       const last = groups[groups.length - 1]
-      if (last && isSameDay(last.date, d)) last.items.push(t)
-      else groups.push({ date: d, items: [t] })
+      if (last && last.key === key) last.items.push(t)
+      else groups.push({ key, items: [t] })
     }
     return groups
-  }, [filtered])
+  }, [filtered, clock])
 
   const removeTx = (t: TransactionDTO) =>
     toast.undoable({
@@ -291,9 +293,9 @@ export function FinanceClient({
               {byDay.map((g) => {
                 const spent = g.items.filter((t) => t.type === "Expense" && t.category !== "Adjustment").reduce((s, t) => s + t.amount, 0)
                 return (
-                  <div key={g.date.toDateString()}>
+                  <div key={g.key}>
                     <div className="sticky top-0 z-[1] flex items-center justify-between border-y border-border bg-subtle/95 px-4 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur">
-                      <span>{dayLabel(g.date)}</span>
+                      <span>{dayLabel(g.key, clock.today)}</span>
                       <span className="tabular">{spent ? `−${formatCurrency(spent, cur)}` : ""}</span>
                     </div>
                     {g.items.map((t) => {

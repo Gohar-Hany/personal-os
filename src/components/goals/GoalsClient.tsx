@@ -4,7 +4,8 @@ import { useMemo, useState } from "react"
 import { Archive, CheckCircle2, FolderKanban, Hourglass, Pause, Pencil, Play, Plus, RotateCcw, Target, Trash2 } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, formatNumber } from "@/lib/utils"
-import { relativeDay } from "@/lib/dates"
+import { dayLabel, keyOf } from "@/lib/tasks/taskLogic"
+import { useClock } from "@/components/app/AppProvider"
 import { GOAL_CATEGORY_META } from "@/lib/constants"
 import { GOAL_CATEGORY_ICONS, GOAL_TONE_STYLES } from "@/components/goals/goalIcons"
 import { useSynced } from "@/lib/hooks"
@@ -102,7 +103,7 @@ export function GoalsClient({ goals: serverGoals }: { goals: GoalDTO[] }) {
           />
         </Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
           {visible.map((g) => (
             <GoalCard key={g.id} goal={g} onUpdate={update} onEdit={() => setDialog(g)} onDelete={() => remove(g)} />
           ))}
@@ -125,6 +126,7 @@ function GoalCard({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const clock = useClock()
   const [adding, setAdding] = useState(false)
   const [amount, setAmount] = useState("")
   const meta = GOAL_CATEGORY_META[g.category] ?? GOAL_CATEGORY_META.Other
@@ -160,7 +162,7 @@ function GoalCard({
             <span>{g.category}</span>
             {g.deadline && (
               <span className="inline-flex items-center gap-1">
-                <Hourglass className="size-3" /> {relativeDay(new Date(g.deadline))}
+                <Hourglass className="size-3" /> {dayLabel(keyOf(g.deadline, clock)!, clock.today)}
               </span>
             )}
             {!!g.projectCount && (

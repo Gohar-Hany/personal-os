@@ -6,6 +6,9 @@ import { ToastProvider } from "@/components/ui/toast"
 import { ConfirmProvider } from "@/components/ui/confirm"
 import { QuickAdd, type QuickAddMode, type QuickAddRequest } from "@/components/app/QuickAdd"
 import { TaskSheet } from "@/components/tasks/TaskSheet"
+import { useNow } from "@/components/today/useNow"
+import { dateKey } from "@/lib/dates"
+import type { Clock } from "@/lib/tasks/taskLogic"
 import type { ProjectLite, TaskDTO } from "@/types"
 
 export interface AppSettings {
@@ -24,6 +27,8 @@ interface OverlayEntry {
 }
 
 interface AppContextValue {
+  /** Today + time zone shared by server render and browser (see lib/tasks/taskLogic Clock). */
+  clock: Clock
   projects: ProjectLite[]
   settings: AppSettings
   inboxCount: number
@@ -39,6 +44,11 @@ interface AppContextValue {
 }
 
 const AppContext = createContext<AppContextValue | null>(null)
+
+/** The shared clock: `today` key and time zone. Use instead of `new Date()` when rendering. */
+export function useClock() {
+  return useApp().clock
+}
 
 export function useApp() {
   const ctx = useContext(AppContext)
@@ -56,14 +66,22 @@ export function AppProvider({
   projects,
   settings,
   inboxCount,
+  today,
+  tz,
   children,
 }: {
   projects: ProjectLite[]
   settings: AppSettings
   inboxCount: number
+  /** The server's idea of the user's today ("YYYY-MM-DD"). */
+  today: string
+  /** The user's IANA time zone as the server resolved it. */
+  tz: string
   children: React.ReactNode
 }) {
   const router = useRouter()
+  useDayGuard(today, router.refresh)
+  const clock = useMemo<Clock>(() => ({ today, tz }), [today, tz])
   const pathname = usePathname()
   const [quickReq, setQuickReq] = useState<QuickAddRequest | null>(null)
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -133,8 +151,8 @@ export function AppProvider({
   }, [quickAdd])
 
   const value = useMemo<AppContextValue>(
-    () => ({ projects, settings, inboxCount, quickAdd, openTask: setTaskId, refresh, taskOverlay: overlay, patchTask }),
-    [projects, settings, inboxCount, quickAdd, refresh, overlay, patchTask],
+    () => ({ clock, projects, settings, inboxCount, quickAdd, openTask: setTaskId, refresh, taskOverlay: overlay, patchTask }),
+    [clock, projects, settings, inboxCount, quickAdd, refresh, overlay, patchTask],
   )
 
   return (
@@ -148,4 +166,47 @@ export function AppProvider({
       </ConfirmProvider>
     </ToastProvider>
   )
+}
+
+/**
+ * Keeps the server's "today" in step with this device:
+ * - tells the server the device's time zone (cookie read by lib/userTime),
+ * - refreshes if the server rendered a different day than the device sees,
+ * - refreshes when the date changes while the app is open (midnight),
+ *   or when the phone wakes the app up on a later day.
+ */
+function useDayGuard(serverToday: string, refresh: () => void) {
+  const lastKey = useRef(serverToday)
+  const now = useNow()
+
+  useEffect(() => {
+    lastKey.current = serverToday
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
+    const current = document.cookie.match(/(?:^|; )tz=([^;]*)/)?.[1]
+    const tzChanged = current === undefined || decodeURIComponent(current) !== tz
+    if (tzChanged) document.cookie = `tz=${encodeURIComponent(tz)}; path=/; max-age=31536000; samesite=lax`
+    if (dateKey() !== serverToday) refresh()
+  }, [serverToday, refresh])
+
+  useEffect(() => {
+    if (now && dateKey(now) !== lastKey.current) {
+      lastKey.current = dateKey(now)
+      refresh()
+    }
+  }, [now, refresh])
+
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === "visible" && dateKey() !== lastKey.current) {
+        lastKey.current = dateKey()
+        refresh()
+      }
+    }
+    document.addEventListener("visibilitychange", check)
+    window.addEventListener("pageshow", check)
+    return () => {
+      document.removeEventListener("visibilitychange", check)
+      window.removeEventListener("pageshow", check)
+    }
+  }, [refresh])
 }

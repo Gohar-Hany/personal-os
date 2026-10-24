@@ -4,14 +4,15 @@ import { getGoals } from "@/lib/goals/goalService"
 import { getMoneySnapshot } from "@/lib/finance/financeService"
 import { getTodayHabits } from "@/lib/habits/habitService"
 import { getTodayTasks } from "@/lib/tasks/taskService"
-import { weekStartOf } from "@/lib/dates"
+import { userClock } from "@/lib/userTime"
+import { findReviewForWeek } from "@/lib/review/reviewService"
 import { serialize } from "@/lib/utils"
 import { TodayClient } from "@/components/today/TodayClient"
 
 export const dynamic = "force-dynamic"
 
 export default async function TodayPage() {
-  const weekStart = weekStartOf()
+  const clock = await userClock()
   const [settings, tasks, habits, focus, money, goals, backlogCount, review] = await Promise.all([
     prisma.userSettings.findUnique({ where: { id: "default" } }),
     getTodayTasks(),
@@ -22,15 +23,15 @@ export default async function TodayPage() {
     prisma.task.count({
       where: { parentId: null, status: { notIn: ["Completed", "Cancelled"] }, scheduledDate: null, dueDate: null },
     }),
-    prisma.weeklyReview.findFirst({ where: { weekStart }, select: { id: true } }),
+    findReviewForWeek(clock.weekStart),
   ])
 
   // Week runs Sat–Fri: suggest the review on Thursday and Friday if it isn't written yet.
-  const day = new Date().getDay()
-  const reviewDue = !review && (day === 4 || day === 5)
+  const reviewDue = !review && (clock.weekday === 4 || clock.weekday === 5)
 
   return (
     <TodayClient
+      today={clock.today}
       tasks={serialize(tasks)}
       habits={serialize(habits)}
       focus={focus ? serialize(focus) : null}

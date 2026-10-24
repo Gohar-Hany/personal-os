@@ -16,6 +16,7 @@ import { Chip, Kbd, Segmented } from "@/components/ui/misc"
 import { useToast } from "@/components/ui/toast"
 import { useApp } from "@/components/app/AppProvider"
 import { TransactionForm } from "@/components/finance/TransactionForm"
+import { PriorityIcon } from "@/components/tasks/TaskIcons"
 import type { TaskDTO } from "@/types"
 
 export type QuickAddMode = "task" | "note" | "money"
@@ -163,7 +164,7 @@ function TaskTab({ request, onDone }: { request: QuickAddRequest; onDone: () => 
           onChange={setPriority}
           size="sm"
           aria-label="Priority"
-          options={[...TASK_PRIORITIES].reverse().map((p) => ({ value: p, label: `${TASK_PRIORITY_META[p].label} priority`, dot: TASK_PRIORITY_META[p].dot }))}
+          options={[...TASK_PRIORITIES].reverse().map((p) => ({ value: p, label: TASK_PRIORITY_META[p].label, icon: <PriorityIcon priority={p} /> }))}
         />
       </div>
 

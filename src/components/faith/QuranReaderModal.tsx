@@ -1,19 +1,28 @@
 "use client"
 
-import { useState } from "react"
-import { BookOpen, Check, ChevronLeft, ChevronRight, Edit3, Sparkles, X } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { BookOpen, Check, ChevronLeft, ChevronRight, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { haptic } from "@/lib/hooks"
+import { haptic, useMediaQuery } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
-import { getQuranPageMeta, TOTAL_QURAN_PAGES } from "@/lib/faith/quranData"
+import { Select } from "@/components/ui/form"
+import { ReaderShell } from "@/components/faith/ReaderShell"
+import { SURAH_PAGES, getQuranPageMeta, TOTAL_QURAN_PAGES } from "@/lib/faith/quranData"
 
 interface QuranReaderModalProps {
   isOpen: boolean
   onClose: () => void
+  /** Bookmark: the first page of the next portion to read. */
   currentPage: number
   onPageChange: (newPage: number) => Promise<void>
   onCompleteWird: () => Promise<void>
+  /** Pages in the daily portion (the Quran habit's target). */
+  pagesPerDay?: number
+  /** Today's portion is already done — open it for review, don't advance again. */
+  doneToday?: boolean
 }
+
+const clamp = (p: number) => Math.max(1, Math.min(TOTAL_QURAN_PAGES, p))
 
 export function QuranReaderModal({
   isOpen,
@@ -21,238 +30,216 @@ export function QuranReaderModal({
   currentPage,
   onPageChange,
   onCompleteWird,
+  pagesPerDay = 2,
+  doneToday = false,
 }: QuranReaderModalProps) {
-  // Safe page range: 1 to 604
-  const p1 = Math.max(1, Math.min(TOTAL_QURAN_PAGES, currentPage || 1))
-  const p2 = Math.min(TOTAL_QURAN_PAGES, p1 + 1)
+  const wide = useMediaQuery("(min-width: 1024px)")
+  const per = Math.max(1, Math.round(pagesPerDay))
+  // When already done, the bookmark has moved past today's portion — show that portion again.
+  const startNow = clamp(doneToday ? currentPage - per : currentPage)
 
-  const [activeTab, setActiveTab] = useState<1 | 2>(1)
-  const [isEditingPage, setIsEditingPage] = useState(false)
-  const [manualPageInput, setManualPageInput] = useState(String(p1))
+  const [page, setPage] = useState(startNow)
+  // Last page read continuously from the start of today's portion (jumping elsewhere doesn't count)
+  const [furthest, setFurthest] = useState(startNow - 1)
+  const [finished, setFinished] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [completedAnimation, setCompletedAnimation] = useState(false)
 
-  if (!isOpen) return null
+  // Freeze today's portion when the reader opens, so saving (which changes the props) doesn't reset it
+  const [session, setSession] = useState<{ start: number; review: boolean } | null>(null)
+  if (isOpen && !session) {
+    setSession({ start: startNow, review: doneToday })
+    setPage(startNow)
+    setFurthest(startNow - 1)
+    setFinished(false)
+  } else if (!isOpen && session) {
+    setSession(null)
+  }
+  const wirdStart = session?.start ?? startNow
+  const wirdEnd = clamp(wirdStart + per - 1)
+  const reviewing = session?.review ?? doneToday
 
-  const activePageNum = activeTab === 1 ? p1 : p2
-  const activeMeta = getQuranPageMeta(activePageNum)
-  const khatmahPct = ((p2 / TOTAL_QURAN_PAGES) * 100).toFixed(1)
+  // Spread on desktop: odd page on the right (first in RTL), like a printed mushaf
+  const spreadStart = page % 2 === 1 ? page : page - 1
+  const visible = wide ? [spreadStart, spreadStart + 1].filter((p) => p >= 1 && p <= TOTAL_QURAN_PAGES) : [page]
+  const step = wide ? 2 : 1
+  const lastVisible = visible[visible.length - 1]
 
-  const handleFinishWird = async () => {
+  // Pages on screen count as read only if they continue on from what was read before
+  const furthestRead = visible[0] <= furthest + 1 ? Math.max(furthest, lastVisible) : furthest
+
+  const turn = (dir: 1 | -1) => {
+    const next = clamp((wide ? spreadStart : page) + dir * step)
+    if (next === page) return
+    haptic(6)
+    if (dir === 1) setFurthest(furthestRead)
+    setPage(next)
+  }
+
+  // Preload neighbours so turning a page is instant
+  const firstVisible = visible[0]
+  useEffect(() => {
+    if (!isOpen) return
+    for (const p of [lastVisible + 1, lastVisible + 2, firstVisible - 1]) {
+      if (p >= 1 && p <= TOTAL_QURAN_PAGES) {
+        const img = new Image()
+        img.src = getQuranPageMeta(p).imageUrl
+      }
+    }
+  }, [isOpen, lastVisible, firstVisible])
+
+  // Keyboard (RTL: ← next, → previous)
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement).tagName === "INPUT") return
+      if (e.key === "ArrowLeft") turn(1)
+      if (e.key === "ArrowRight") turn(-1)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
+
+  const finish = async () => {
     setSaving(true)
     haptic(30)
     try {
       await onCompleteWird()
-      // Advance bookmark by 2 pages for tomorrow
-      const nextPage = Math.min(TOTAL_QURAN_PAGES, p1 + 2)
-      await onPageChange(nextPage)
-      setCompletedAnimation(true)
+      // Bookmark moves past today's portion — or past wherever you read to, if further
+      await onPageChange(clamp(Math.max(wirdEnd, furthestRead) + 1))
+      setFinished(true)
     } finally {
       setSaving(false)
     }
   }
 
-  const handleSaveManualPage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const num = parseInt(manualPageInput, 10)
-    if (!isNaN(num) && num >= 1 && num <= TOTAL_QURAN_PAGES) {
-      setSaving(true)
-      try {
-        await onPageChange(num)
-        setIsEditingPage(false)
-      } finally {
-        setSaving(false)
-      }
-    }
-  }
+  const jump = (p: number) => setPage(clamp(p))
+
+  const meta = getQuranPageMeta(visible[0])
+  const inWird = visible.some((p) => p >= wirdStart && p <= wirdEnd)
+  const readPct = Math.round((lastVisible / TOTAL_QURAN_PAGES) * 100)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-background/85 backdrop-blur-md animate-fade-in" dir="rtl">
-      <div className="relative flex flex-col w-full max-w-4xl h-[95vh] max-h-[900px] rounded-3xl border border-border bg-card shadow-2xl overflow-hidden">
-        {/* Top Header */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-border bg-card/70 backdrop-blur-sm">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-primary-soft text-primary">
-              <BookOpen className="size-5" />
-            </span>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-foreground leading-tight">
-                  الورد اليومي (صفحتين)
-                </h2>
-                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary-soft text-primary">
-                  ص {p1} – {p2}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                الجزء {activeMeta.juzNumber} · {activeMeta.surahNameAr} · {khatmahPct}% من الختمة
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setManualPageInput(String(p1))
-                setIsEditingPage(!isEditingPage)
-              }}
-              title="تعديل رقم الصفحة"
-              className="flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-label="تعديل مكان الورد"
-            >
-              <Edit3 className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex size-9 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              aria-label="إغلاق"
-            >
-              <X className="size-5" />
-            </button>
-          </div>
+    <ReaderShell
+      open={isOpen}
+      onClose={onClose}
+      size="lg"
+      title={meta.surahNameAr}
+      subtitle={
+        <span className="tabular">
+          الجزء {meta.juzNumber} · صفحة {visible.join("–")} من {TOTAL_QURAN_PAGES} · ورد اليوم ص {wirdStart}
+          {wirdEnd !== wirdStart && `–${wirdEnd}`}
+        </span>
+      }
+      progress={readPct}
+      actions={
+        <div className="w-36 sm:w-56" dir="ltr">
+          <Select
+            size="sm"
+            value=""
+            onChange={(v) => v && jump(Number(v))}
+            placeholder="انتقل إلى سورة…"
+            title="السور"
+            aria-label="انتقل إلى سورة"
+            searchable
+            options={SURAH_PAGES.map((s) => ({ value: String(s.page), label: `${s.no}. ${s.name}`, hint: `ص ${s.page}` }))}
+          />
         </div>
-
-        {/* Manual Page Selector Bar */}
-        {isEditingPage && (
-          <form onSubmit={handleSaveManualPage} className="flex items-center gap-2 px-6 py-2.5 bg-muted/60 border-b border-border animate-slide-down">
-            <span className="text-xs font-medium text-muted-foreground">الانتقال إلى صفحة:</span>
-            <input
-              type="number"
-              min={1}
-              max={604}
-              value={manualPageInput}
-              onChange={(e) => setManualPageInput(e.target.value)}
-              className="h-8 w-20 rounded-lg border border-border bg-card px-2.5 text-center text-sm font-semibold outline-none focus:border-primary"
-            />
-            <Button variant="primary" size="sm" type="submit" disabled={saving}>
-              حفظ وتطبيق
+      }
+      footer={
+        finished ? undefined : (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="md" className="h-11 rounded-xl" onClick={() => turn(-1)} disabled={visible[0] <= 1} aria-label="الصفحة السابقة">
+              <ChevronRight /> <span className="hidden sm:inline">السابقة</span>
             </Button>
-            <button
-              type="button"
-              onClick={() => setIsEditingPage(false)}
-              className="text-xs text-muted-foreground hover:text-foreground mr-2 cursor-pointer"
-            >
-              إلغاء
-            </button>
-          </form>
-        )}
-
-        {/* Main Body */}
-        {completedAnimation ? (
-          <div className="flex flex-1 flex-col items-center justify-center p-6 text-center space-y-4 animate-scale-in">
-            <div className="flex size-20 items-center justify-center rounded-full bg-success-soft text-success shadow-lg">
-              <Sparkles className="size-10" />
+            <div className="flex min-w-0 flex-1 flex-col items-center text-xs text-muted-foreground">
+              {reviewing ? (
+                <span className="inline-flex items-center gap-1 font-medium text-success"><Check className="size-3.5" /> أتممت ورد اليوم — هذه مراجعة</span>
+              ) : (
+                <span className="tabular">{inWird ? "أنت في ورد اليوم" : furthestRead > wirdEnd ? `قرأت حتى ص ${furthestRead}` : `ورد اليوم يبدأ من ص ${wirdStart}`}</span>
+              )}
             </div>
-            <h3 className="text-2xl font-bold text-foreground">هنيئاً لك إتمام ورد اليوم 🌿</h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
-              تم تسجيل قراءة صفحتين بنجاح كعادة مكتملة لليوم، وتم نقل مكانك تلقائياً لصفحة {Math.min(TOTAL_QURAN_PAGES, p1 + 2)} لورد الغد إن شاء الله.
-            </p>
-            <div className="pt-3">
-              <Button variant="primary" size="md" onClick={onClose} className="rounded-xl px-8">
-                <Check className="size-4 ml-1.5" /> إغلاق
+            <Button variant="outline" size="md" className="h-11 rounded-xl" onClick={() => turn(1)} disabled={lastVisible >= TOTAL_QURAN_PAGES} aria-label="الصفحة التالية">
+              <span className="hidden sm:inline">التالية</span> <ChevronLeft />
+            </Button>
+            {!reviewing && (
+              <Button variant="primary" size="md" className="h-11 rounded-xl px-5 font-semibold" onClick={finish} disabled={saving}>
+                <Check /> أتممت الورد
               </Button>
-            </div>
+            )}
           </div>
-        ) : (
-          <div className="flex flex-1 flex-col overflow-hidden">
-            {/* Page Tab Selector for mobile & quick switch */}
-            <div className="flex items-center justify-center gap-2 p-2.5 border-b border-border bg-subtle/50">
-              <button
-                type="button"
-                onClick={() => {
-                  haptic(8)
-                  setActiveTab(1)
-                }}
-                className={cn(
-                  "flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer",
-                  activeTab === 1
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <span>الصفحة الأولى (ص {p1})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  haptic(8)
-                  setActiveTab(2)
-                }}
-                className={cn(
-                  "flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer",
-                  activeTab === 2
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                <span>الصفحة الثانية (ص {p2})</span>
-              </button>
-            </div>
+        )
+      }
+    >
+      {finished ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="flex size-20 items-center justify-center rounded-full bg-success-soft text-success"><Sparkles className="size-10" /></div>
+          <h3 className="font-arabic text-3xl font-bold">هنيئاً لك، تقبّل الله</h3>
+          <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">
+            تم تسجيل ورد اليوم. ورد الغد يبدأ من صفحة {clamp(Math.max(wirdEnd, furthestRead) + 1)} إن شاء الله.
+          </p>
+          <Button variant="primary" size="md" onClick={onClose} className="rounded-xl px-8">تم</Button>
+        </div>
+      ) : (
+        <Pages pages={visible} wirdStart={wirdStart} wirdEnd={wirdEnd} onSwipe={turn} />
+      )}
+    </ReaderShell>
+  )
+}
 
-            {/* Quran Page Viewer (Centered crisp high-res image with dark mode styling) */}
-            <div className="relative flex-1 flex items-center justify-center p-3 sm:p-5 overflow-auto bg-muted/20">
-              <div className="relative max-w-full max-h-full flex items-center justify-center rounded-2xl overflow-hidden shadow-lg border border-border bg-card">
-                <img
-                  src={activeMeta.imageUrl}
-                  alt={`مصحف المدينة المنورة - صفحة ${activePageNum}`}
-                  className="max-h-[68vh] w-auto object-contain select-none dark:invert-[0.93] dark:hue-rotate-180 transition-opacity duration-300"
-                  onError={(e) => {
-                    // Fallback to Quran.com CDN if needed
-                    const target = e.target as HTMLImageElement
-                    if (target.src !== activeMeta.fallbackImageUrl) {
-                      target.src = activeMeta.fallbackImageUrl
-                    }
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Bottom Action Footer */}
-            <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-t border-border bg-card/80 backdrop-blur-sm">
-              <div className="text-xs text-muted-foreground hidden sm:block">
-                الصفحة الحالية: <span className="font-semibold text-foreground">{activePageNum}</span> من {TOTAL_QURAN_PAGES}
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                {activeTab === 1 ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      haptic(8)
-                      setActiveTab(2)
-                    }}
-                    className="flex-1 sm:flex-initial rounded-xl"
-                  >
-                    الصفحة التالية <ChevronLeft className="size-4 mr-1" />
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      haptic(8)
-                      setActiveTab(1)
-                    }}
-                    className="flex-1 sm:flex-initial rounded-xl"
-                  >
-                    <ChevronRight className="size-4 ml-1" /> الصفحة السابقة
-                  </Button>
-                )}
-
-                <Button
-                  variant="primary"
-                  onClick={handleFinishWird}
-                  disabled={saving}
-                  className="flex-1 sm:flex-initial rounded-xl font-bold px-6 shadow-md shadow-primary/20"
-                >
-                  <Check className="size-4 ml-1.5" /> أتممت الورد اليومي ✨
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+/** The page images on warm paper, with a loading state and swipe on touch screens. */
+function Pages({ pages, wirdStart, wirdEnd, onSwipe }: { pages: number[]; wirdStart: number; wirdEnd: number; onSwipe: (dir: 1 | -1) => void }) {
+  const start = useRef<number | null>(null)
+  return (
+    <div
+      className="flex h-full touch-pan-y items-stretch justify-center gap-0 overflow-auto bg-[#efe9dd] p-2 sm:p-4 dark:bg-[#16150f]"
+      onTouchStart={(e) => (start.current = e.touches[0].clientX)}
+      onTouchEnd={(e) => {
+        if (start.current === null) return
+        const dx = e.changedTouches[0].clientX - start.current
+        start.current = null
+        // RTL book: swiping right turns forward
+        if (Math.abs(dx) > 60) onSwipe(dx > 0 ? 1 : -1)
+      }}
+    >
+      {pages.map((p, i) => (
+        <QuranPage key={p} page={p} inWird={p >= wirdStart && p <= wirdEnd} side={pages.length === 2 ? (i === 0 ? "right" : "left") : "single"} />
+      ))}
     </div>
+  )
+}
+
+function QuranPage({ page, inWird, side }: { page: number; inWird: boolean; side: "right" | "left" | "single" }) {
+  const meta = getQuranPageMeta(page)
+  const [loaded, setLoaded] = useState(false)
+  const [src, setSrc] = useState(meta.imageUrl)
+  return (
+    <figure
+      className={cn(
+        "relative flex max-h-full min-w-0 flex-1 flex-col items-center justify-center bg-[#fbf7ee] shadow-[0_2px_16px_-6px_rgb(60_40_10/0.35)] dark:bg-[#1d1c17]",
+        side === "right" && "rounded-r-xl border-l border-[#e5dcc8] dark:border-[#2c2a22]",
+        side === "left" && "rounded-l-xl",
+        side === "single" && "rounded-xl",
+        "max-w-[560px]",
+      )}
+    >
+      {!loaded && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-[#a8957a]">
+          <BookOpen className="size-8 animate-pulse" />
+          <span className="text-xs">جارٍ تحميل الصفحة…</span>
+        </div>
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={`مصحف المدينة — صفحة ${page}`}
+        onLoad={() => setLoaded(true)}
+        onError={() => src !== meta.fallbackImageUrl && setSrc(meta.fallbackImageUrl)}
+        draggable={false}
+        className={cn("h-full max-h-full w-auto object-contain p-3 transition-opacity duration-300 select-none dark:invert-[0.88] dark:sepia-[0.15]", loaded ? "opacity-100" : "opacity-0")}
+      />
+      <figcaption className={cn("absolute bottom-1.5 rounded-full px-2 text-[10px] tabular", inWird ? "bg-primary-soft text-primary" : "text-[#a8957a]")}>
+        {page}
+      </figcaption>
+    </figure>
   )
 }

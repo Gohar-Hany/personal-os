@@ -22,7 +22,7 @@ export function getJuzForPage(page: number): number {
 }
 
 // Key surah start pages in the 604-page Madinah Mus-haf
-const SURAH_PAGES = [
+export const SURAH_PAGES = [
   { no: 1, name: "الفاتحة", page: 1 },
   { no: 2, name: "البقرة", page: 2 },
   { no: 3, name: "آل عمران", page: 50 },

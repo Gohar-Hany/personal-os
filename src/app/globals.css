@@ -92,6 +92,7 @@
   --color-overlay: var(--overlay);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, "Segoe UI", "Noto Sans Arabic", sans-serif;
+  --font-arabic: var(--font-amiri), "Amiri", "Noto Naskh Arabic", "Traditional Arabic", serif;
   --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   --shadow-card: 0 1px 2px rgb(var(--shadow-color) / 0.05), 0 0 0 1px rgb(var(--shadow-color) / 0.01), inset 0 1px 0 rgb(255 255 255 / var(--card-highlight));

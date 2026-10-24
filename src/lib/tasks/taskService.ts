@@ -1,6 +1,5 @@
-import { addDays } from "date-fns"
 import { prisma } from "@/lib/prisma"
-import { todayStart } from "@/lib/dates"
+import { userClock } from "@/lib/userTime"
 import { compareTasks } from "@/lib/tasks/taskLogic"
 import type { TaskStatus, TaskPriority } from "@/types"
 
@@ -33,8 +32,8 @@ export async function getTask(id: string) {
  * plus anything completed today so progress doesn't shrink as you work.
  */
 export async function getTodayTasks() {
-  const today = todayStart()
-  const tomorrow = addDays(today, 1)
+  const clock = await userClock()
+  const { start: today, end: tomorrow } = clock.day(clock.today)
 
   const tasks = await prisma.task.findMany({
     where: {

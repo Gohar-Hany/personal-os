@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { compareTasks } from "@/lib/tasks/taskLogic"
+import { userClock } from "@/lib/userTime"
+import { addDaysToKey } from "@/lib/zone"
 import type { ProjectStatus, Priority } from "@/types"
 
 const OPEN = { notIn: ["Completed", "Cancelled"] }
@@ -27,6 +29,7 @@ export async function getProjects(filters?: { status?: ProjectStatus }) {
     include: {
       goal: { select: { id: true, name: true } },
       _count: { select: { milestones: true } },
+      milestones: { orderBy: { order: "asc" }, select: { id: true, title: true, status: true } },
       tasks: {
         where: { parentId: null, status: OPEN },
         select: { id: true, title: true, status: true, priority: true, scheduledDate: true, dueDate: true, startTime: true, order: true },
@@ -34,15 +37,40 @@ export async function getProjects(filters?: { status?: ProjectStatus }) {
     },
     orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
   })
-  const counts = await taskCounts(projects.map((p) => p.id))
+  const ids = projects.map((p) => p.id)
+  const [counts, perMilestone, clock] = await Promise.all([
+    taskCounts(ids),
+    prisma.task.groupBy({
+      by: ["milestoneId", "status"],
+      where: { parentId: null, projectId: { in: ids }, milestoneId: { not: null }, status: { not: "Cancelled" } },
+      _count: { _all: true },
+    }),
+    userClock(),
+  ])
+  const ms: Record<string, { total: number; done: number }> = {}
+  for (const r of perMilestone) {
+    const c = (ms[r.milestoneId!] ??= { total: 0, done: 0 })
+    c.total += r._count._all
+    if (r.status === "Completed") c.done += r._count._all
+  }
+  // Day boundaries in the user's zone
+  const todayStart = clock.day(clock.today).start
+  const weekEnd = clock.day(addDaysToKey(clock.today, 7)).start
+  const dateOf = (t: { scheduledDate: Date | null; dueDate: Date | null }) => t.scheduledDate ?? t.dueDate
 
-  return projects.map(({ tasks, _count, ...p }) => {
-    const next = [...tasks].sort(compareTasks)[0]
+  return projects.map(({ tasks, _count, milestones, ...p }) => {
+    const sorted = [...tasks].sort(compareTasks)
+    const next = sorted[0]
     return {
       ...p,
       taskCount: counts[p.id]?.total ?? 0,
       completedTaskCount: counts[p.id]?.completed ?? 0,
       milestoneCount: _count.milestones,
+      openCount: tasks.length,
+      overdueCount: tasks.filter((t) => { const d = dateOf(t); return d && d < todayStart }).length,
+      dueThisWeek: tasks.filter((t) => { const d = dateOf(t); return d && d >= todayStart && d < weekEnd }).length,
+      inProgressCount: tasks.filter((t) => t.status === "InProgress").length,
+      milestones: milestones.map((m) => ({ ...m, total: ms[m.id]?.total ?? 0, done: ms[m.id]?.done ?? 0 })),
       nextTask: next ? { id: next.id, title: next.title } : null,
     }
   })

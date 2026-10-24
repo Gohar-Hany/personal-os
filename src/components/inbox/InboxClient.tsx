@@ -246,7 +246,7 @@ function PendingItem({
         </p>
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <span className="mr-auto text-xs text-muted-foreground">{formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}</span>
+        <span suppressHydrationWarning className="mr-auto text-xs text-muted-foreground">{formatDistanceToNow(new Date(item.createdAt), { addSuffix: true })}</span>
         <Button size="xs" variant="outline" onClick={onTask}><CheckSquare /> Task</Button>
         <Button size="xs" variant="ghost" onClick={onProject} className="hidden sm:inline-flex"><FolderKanban /> Project</Button>
         <Button size="xs" variant="ghost" onClick={onGoal} className="hidden sm:inline-flex"><Target /> Goal</Button>

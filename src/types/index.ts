@@ -63,6 +63,12 @@ export interface ProjectDTO {
   taskCount: number
   completedTaskCount: number
   milestoneCount?: number
+  /** Only on the projects list. */
+  openCount?: number
+  overdueCount?: number
+  dueThisWeek?: number
+  inProgressCount?: number
+  milestones?: { id: string; title: string; status: string; total?: number; done?: number }[]
   nextTask?: { id: string; title: string } | null
   createdAt: string
 }

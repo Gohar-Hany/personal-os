@@ -34,6 +34,7 @@ export function DatePicker({
   size = "md",
   className,
   title = "Pick a date",
+  trigger,
   "aria-label": ariaLabel,
 }: {
   value: string
@@ -45,6 +46,8 @@ export function DatePicker({
   size?: "sm" | "md"
   className?: string
   title?: string
+  /** Custom trigger element (e.g. a compact chip in a task row). */
+  trigger?: React.ReactElement
   "aria-label"?: string
 }) {
   const [open, setOpen] = useState(false)
@@ -59,7 +62,7 @@ export function DatePicker({
       onOpenChange={setOpen}
       title={title}
       width={296}
-      trigger={
+      trigger={trigger ?? (
         <button type="button" aria-label={ariaLabel ?? title} data-state={open ? "open" : "closed"} className={cn(triggerClass(size), className)}>
           <CalendarDays className="size-4 text-muted-foreground" />
           <span className={cn("flex-1 truncate", !value && "text-muted-foreground")}>{value ? friendlyDate(value) : placeholder}</span>
@@ -77,7 +80,7 @@ export function DatePicker({
             </span>
           )}
         </button>
-      }
+      )}
     >
       <DatePanel value={value} onPick={pick} quick={quick} clearable={clearable} max={max} />
     </Picker>
@@ -211,6 +214,7 @@ export function TimePicker({
   placeholder = "No time",
   className,
   size = "md",
+  icon = true,
   "aria-label": ariaLabel,
 }: {
   value: string
@@ -218,6 +222,8 @@ export function TimePicker({
   placeholder?: string
   className?: string
   size?: "sm" | "md"
+  /** Hide the clock icon where space is tight (two pickers side by side). */
+  icon?: boolean
   "aria-label"?: string
 }) {
   // Keep an off-grid saved time (e.g. 20:10) selectable
@@ -230,7 +236,7 @@ export function TimePicker({
       onChange={(v) => onChange(v || null)}
       options={options}
       placeholder={placeholder}
-      icon={<Clock />}
+      icon={icon ? <Clock /> : undefined}
       scrollToValue="09:00"
       className={className}
       size={size}

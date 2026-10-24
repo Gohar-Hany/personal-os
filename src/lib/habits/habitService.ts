@@ -1,14 +1,17 @@
 import { prisma } from "@/lib/prisma"
-import { dateKey } from "@/lib/dates"
+import { parseDateKey } from "@/lib/dates"
+import { userClock } from "@/lib/userTime"
 import { appliesOn } from "@/lib/habits/recurrence"
 
 export async function getAllHabits() {
   return prisma.habit.findMany({ orderBy: [{ order: "asc" }, { createdAt: "asc" }] })
 }
 
-/** Active habits that apply today, each with today's completion state. */
-export async function getTodayHabits(date: Date = new Date()) {
-  const key = dateKey(date)
+/** Active habits that apply on the user's today (in their time zone), with that day's state. */
+export async function getTodayHabits(key?: string) {
+  key ??= (await userClock()).today
+  // A calendar date built from the key, so weekday checks don't depend on the server's zone
+  const date = parseDateKey(key)
   const habits = await prisma.habit.findMany({
     where: { isActive: true },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
@@ -30,7 +33,7 @@ export async function getHabitLogMap(fromKey: string, toKey: string) {
   return map
 }
 
-export async function logHabit(habitId: string, completed: boolean, date: string = dateKey(), value?: number) {
+export async function logHabit(habitId: string, completed: boolean, date: string, value?: number) {
   return prisma.habitLog.upsert({
     where: { habitId_date: { habitId, date } },
     create: { habitId, date, completed, value },

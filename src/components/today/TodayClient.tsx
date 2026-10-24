@@ -6,7 +6,7 @@ import { format } from "date-fns"
 import { Activity, ArrowRight, CalendarPlus, CheckSquare, ChevronDown, FolderKanban, Inbox, RefreshCw, Sparkles, Star, Target, Wallet } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, calcProgress, formatCurrency, formatNumber } from "@/lib/utils"
-import { dateKey, greeting } from "@/lib/dates"
+import { greeting, parseDateKey } from "@/lib/dates"
 import { bucketOf } from "@/lib/tasks/taskLogic"
 import { useSynced } from "@/lib/hooks"
 import { Card, CardHeader } from "@/components/ui/card"
@@ -18,7 +18,7 @@ import { useApp } from "@/components/app/AppProvider"
 import { TaskRow } from "@/components/tasks/TaskRow"
 import { TaskInlineAdd } from "@/components/tasks/TaskInlineAdd"
 import { useLiveTasks, useTaskActions } from "@/components/tasks/useTasks"
-import { FaithCard, PrayerStrip, nextPrayer, untilLabel, usePrayerTimes, type PrayerLocation } from "@/components/today/FaithCard"
+import { FaithCard, FaithPractices, PrayerStrip, adhkarHabit, isQuranHabit, nextPrayer, untilLabel, usePrayerTimes, type PrayerLocation } from "@/components/today/FaithCard"
 import { useNow } from "@/components/today/useNow"
 import { AdhkarReaderModal } from "@/components/faith/AdhkarReaderModal"
 import { QuranReaderModal } from "@/components/faith/QuranReaderModal"
@@ -34,6 +34,7 @@ interface FocusProject {
 }
 
 export function TodayClient({
+  today,
   tasks: serverTasks,
   habits: serverHabits,
   focus,
@@ -44,6 +45,8 @@ export function TodayClient({
   backlogCount,
   reviewDue,
 }: {
+  /** The day this data belongs to ("YYYY-MM-DD", user's zone) — every write uses it too. */
+  today: string
   tasks: TaskDTO[]
   habits: TodayHabitDTO[]
   focus: FocusProject | null
@@ -54,7 +57,7 @@ export function TodayClient({
   backlogCount: number
   reviewDue: boolean
 }) {
-  const { settings, inboxCount, quickAdd, openTask, refresh } = useApp()
+  const { settings, inboxCount, quickAdd, openTask, refresh, clock } = useApp()
   const toast = useToast()
   const now = useNow()
   const times = usePrayerTimes(location, now)
@@ -68,11 +71,8 @@ export function TodayClient({
 
   const [activeAdhkar, setActiveAdhkar] = useState<"morning" | "evening" | null>(null)
   const [quranModalOpen, setQuranModalOpen] = useState(false)
-  const [currentQuranPage, setCurrentQuranPage] = useState(quranPage ?? 1)
-
-  useEffect(() => {
-    if (quranPage) setCurrentQuranPage(quranPage)
-  }, [quranPage])
+  // Follows the saved bookmark whenever the server sends a new one
+  const [currentQuranPage, setCurrentQuranPage] = useSynced(quranPage ?? 1)
 
   const handleCompleteAdhkar = async (type: "morning" | "evening") => {
     const keyword = type === "morning" ? "morning" : "evening"
@@ -84,7 +84,7 @@ export function TodayClient({
     if (habit && !habit.done) {
       setHabits((list) => list.map((x) => (x.id === habit.id ? { ...x, done: true } : x)))
       try {
-        await api("/api/habits/log", { body: { habitId: habit.id, completed: true, date: dateKey() } })
+        await api("/api/habits/log", { body: { habitId: habit.id, completed: true, date: today } })
         refresh()
       } catch (err) {
         toast.error((err as Error).message)
@@ -98,7 +98,7 @@ export function TodayClient({
     if (habit && !habit.done) {
       setHabits((list) => list.map((x) => (x.id === habit.id ? { ...x, done: true } : x)))
       try {
-        await api("/api/habits/log", { body: { habitId: habit.id, completed: true, date: dateKey() } })
+        await api("/api/habits/log", { body: { habitId: habit.id, completed: true, date: today } })
         refresh()
       } catch (err) {
         toast.error((err as Error).message)
@@ -123,13 +123,13 @@ export function TodayClient({
     const done: TaskDTO[] = []
     for (const t of tasks) {
       if (t.status === "Cancelled") continue
-      const b = bucketOf(t)
+      const b = bucketOf(t, clock)
       if (b === "done") done.push(t)
       else if (b === "overdue") overdue.push(t)
       else if (b === "today") today.push(t)
     }
     return { overdue, today, done }
-  }, [tasks])
+  }, [tasks, clock])
 
   // Progress = today's tasks (incl. carried-over) + today's habits. Shown as one number.
   const taskTotal = groups.overdue.length + groups.today.length + groups.done.length
@@ -142,7 +142,7 @@ export function TodayClient({
     const done = !h.done
     setHabits((list) => list.map((x) => (x.id === h.id ? { ...x, done } : x)))
     try {
-      await api("/api/habits/log", { body: { habitId: h.id, completed: done, date: dateKey() } })
+      await api("/api/habits/log", { body: { habitId: h.id, completed: done, date: today } })
       refresh()
     } catch (err) {
       setHabits((list) => list.map((x) => (x.id === h.id ? { ...x, done: !done } : x)))
@@ -150,7 +150,7 @@ export function TodayClient({
     }
   }
 
-  const moveOverdueToToday = () => groups.overdue.forEach((t) => actions.reschedule(t, dateKey()))
+  const moveOverdueToToday = () => groups.overdue.forEach((t) => actions.reschedule(t, today))
 
   const routine = habits.filter((h) => !h.isPrayer && !h.isQuran && !h.isAdhkar && h.category !== "Religious")
 
@@ -161,7 +161,7 @@ export function TodayClient({
         <div className="space-y-5 p-5 sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-[13px] font-medium text-muted-foreground">{now ? format(now, "EEEE, MMMM d") : " "}</p>
+              <p className="text-[13px] font-medium text-muted-foreground">{format(parseDateKey(today), "EEEE, MMMM d")}</p>
               <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
                 {now ? greeting(now) : "Hello"}, {settings.name}
               </h1>
@@ -182,6 +182,15 @@ export function TodayClient({
             </ProgressRing>
           </div>
           <PrayerStrip habits={habits} onToggle={toggleHabit} times={times} now={now} />
+          <FaithPractices
+            habits={habits}
+            today={today}
+            quranPage={currentQuranPage}
+            times={times}
+            now={now}
+            onOpenAdhkar={(type) => setActiveAdhkar(type)}
+            onOpenQuran={() => setQuranModalOpen(true)}
+          />
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground tabular">
             <span><span className="font-semibold text-foreground">{groups.done.length}/{taskTotal}</span> tasks</span>
             <span><span className="font-semibold text-foreground">{habitDone}/{habits.length}</span> habits & prayers</span>
@@ -206,7 +215,7 @@ export function TodayClient({
         </div>
       )}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[1fr_340px]">
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
         {/* ─── Left: tasks + focus ─── */}
         <div className="space-y-6">
           <Card className="overflow-hidden">
@@ -220,7 +229,7 @@ export function TodayClient({
                 </Button>
               }
             />
-            <TaskInlineAdd defaults={{ scheduledDate: dateKey() }} placeholder="Add a task for today" className="border-b border-border" />
+            <TaskInlineAdd defaults={{ scheduledDate: today }} placeholder="Add a task for today" className="border-b border-border" />
 
             {taskTotal === 0 ? (
               <EmptyState
@@ -383,12 +392,14 @@ export function TodayClient({
         </div>
       </div>
 
-      <PlanDialog open={planOpen} onOpenChange={setPlanOpen} />
+      <PlanDialog open={planOpen} onOpenChange={setPlanOpen} today={today} />
 
       <AdhkarReaderModal
         isOpen={!!activeAdhkar}
         onClose={() => setActiveAdhkar(null)}
         type={activeAdhkar || "morning"}
+        today={today}
+        alreadyDone={!!(activeAdhkar && adhkarHabit(habits, activeAdhkar)?.done)}
         onComplete={() => activeAdhkar && handleCompleteAdhkar(activeAdhkar)}
       />
 
@@ -398,6 +409,8 @@ export function TodayClient({
         currentPage={currentQuranPage}
         onPageChange={handleQuranPageChange}
         onCompleteWird={handleCompleteQuranWird}
+        pagesPerDay={habits.find(isQuranHabit)?.targetValue ?? 2}
+        doneToday={!!habits.find(isQuranHabit)?.done}
       />
     </div>
   )
@@ -426,15 +439,15 @@ function Nudge({ href, icon, children }: { href: string; icon: React.ReactNode; 
 }
 
 /** Pick unscheduled tasks for today. */
-function PlanDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+function PlanDialog({ open, onOpenChange, today }: { open: boolean; onOpenChange: (o: boolean) => void; today: string }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Plan your day" description="Tasks without a date. Tap to add them to today.">
-      <BacklogPicker />
+      <BacklogPicker today={today} />
     </Dialog>
   )
 }
 
-function BacklogPicker() {
+function BacklogPicker({ today }: { today: string }) {
   const [tasks, setTasks] = useState<TaskDTO[] | null>(null)
   const [added, setAdded] = useState<Set<string>>(new Set())
   const actions = useTaskActions()
@@ -462,7 +475,7 @@ function BacklogPicker() {
                 type="button"
                 disabled={isAdded}
                 onClick={() => {
-                  actions.reschedule(t, dateKey())
+                  actions.reschedule(t, today)
                   setAdded((s) => new Set(s).add(t.id))
                 }}
                 className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted disabled:cursor-default disabled:opacity-60"

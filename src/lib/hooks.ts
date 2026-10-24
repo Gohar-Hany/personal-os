@@ -16,17 +16,22 @@ export function useSynced<T>(value: T) {
   return [state, setState] as const
 }
 
-const MOBILE_QUERY = "(max-width: 639px)"
-
-function subscribeMobile(cb: () => void) {
-  const mq = window.matchMedia(MOBILE_QUERY)
-  mq.addEventListener("change", cb)
-  return () => mq.removeEventListener("change", cb)
+/** Live result of a CSS media query. False during server render. */
+export function useMediaQuery(query: string) {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(query)
+      mq.addEventListener("change", cb)
+      return () => mq.removeEventListener("change", cb)
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  )
 }
 
 /** True on phone-sized screens. Pickers and menus become bottom sheets there. */
 export function useIsMobile() {
-  return useSyncExternalStore(subscribeMobile, () => window.matchMedia(MOBILE_QUERY).matches, () => false)
+  return useMediaQuery("(max-width: 639px)")
 }
 
 /** A short tap of the vibration motor on phones that support it. */

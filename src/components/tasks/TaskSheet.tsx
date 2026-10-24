@@ -2,20 +2,24 @@
 
 import { useEffect, useRef, useState } from "react"
 import { format } from "date-fns"
-import { CalendarDays, CircleDot, Clock, Flag, FolderKanban, Plus, Trash2, X, Hourglass, Milestone as MilestoneIcon } from "lucide-react"
+import Link from "next/link"
+import { CalendarDays, ChevronRight, CircleDot, Clock, Flag, FolderKanban, Plus, Trash2, X, Hourglass, Milestone as MilestoneIcon } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, calcProgress } from "@/lib/utils"
-import { dateKey, toDate } from "@/lib/dates"
+import { keyOf } from "@/lib/tasks/taskLogic"
 import { TASK_PRIORITY_META } from "@/lib/constants"
 import { Dialog } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Select, Textarea } from "@/components/ui/form"
 import { DatePicker, TimePicker } from "@/components/ui/datepicker"
-import { CheckCircle, ProgressBar, Segmented } from "@/components/ui/misc"
+import { ProgressBar, Segmented } from "@/components/ui/misc"
 import { useToast } from "@/components/ui/toast"
-import { useApp } from "@/components/app/AppProvider"
+import { useApp, useClock } from "@/components/app/AppProvider"
 import { useTaskActions } from "@/components/tasks/useTasks"
-import type { SubtaskDTO, TaskDTO } from "@/types"
+import { useSubtasks } from "@/components/tasks/useSubtasks"
+import { PriorityIcon, StatusCheck } from "@/components/tasks/TaskIcons"
+import { projectDot } from "@/components/tasks/TaskRow"
+import type { TaskDTO } from "@/types"
 
 const ESTIMATES = [
   { value: "15", label: "15 min" },
@@ -36,12 +40,13 @@ export function TaskSheet({ taskId, onClose }: { taskId: string | null; onClose:
       side="right"
       initialFocus={false}
     >
-      {taskId && <TaskLoader key={taskId} taskId={taskId} onClose={onClose} />}
+      {taskId && <TaskDetailPanel key={taskId} taskId={taskId} onClose={onClose} />}
     </Dialog>
   )
 }
 
-function TaskLoader({ taskId, onClose }: { taskId: string; onClose: () => void }) {
+/** Task details for a task id — used inside the sheet and as the inline side panel on wide screens. */
+export function TaskDetailPanel({ taskId, onClose }: { taskId: string; onClose: () => void }) {
   const [task, setTask] = useState<TaskDTO | null>(null)
   const { refresh, patchTask } = useApp()
   const actions = useTaskActions()
@@ -108,8 +113,8 @@ function TaskDetails({
   const [notes, setNotes] = useState(task.notes ?? task.description ?? "")
   const done = task.status === "Completed"
 
-  const scheduled = toDate(task.scheduledDate)
-  const scheduledKey = scheduled ? dateKey(scheduled) : ""
+  const clock = useClock()
+  const scheduledKey = keyOf(task.scheduledDate, clock) ?? ""
   const project = projects.find((p) => p.id === task.projectId)
 
   const commitTitle = () => {
@@ -120,13 +125,33 @@ function TaskDetails({
 
   return (
     <div className="space-y-5 pt-1">
+      {/* Where this task lives: Project › Milestone */}
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        {task.project ? (
+          <>
+            <Link href={`/projects/${task.project.id}`} className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 hover:bg-muted hover:text-foreground">
+              <span className={cn("size-2 shrink-0 rounded-full", projectDot(task.project.id))} />
+              <span className="truncate">{task.project.name}</span>
+            </Link>
+            {task.milestone && (
+              <>
+                <ChevronRight className="size-3 shrink-0" />
+                <span className="truncate">{task.milestone.title}</span>
+              </>
+            )}
+          </>
+        ) : (
+          <span className="px-1.5 py-0.5">No project</span>
+        )}
+      </div>
+
       {/* Title */}
-      <div className="flex items-start gap-3 pt-1">
-        <CheckCircle
-          checked={done}
-          onChange={() => save({ status: done ? "Todo" : "Completed" })}
+      <div className="flex items-start gap-3">
+        <StatusCheck
+          status={task.status}
+          onToggle={() => save({ status: done ? "Todo" : "Completed" })}
           label={done ? "Mark as not done" : "Mark as done"}
-          className="mt-1.5"
+          className="mt-1"
         />
         <textarea
           value={title}
@@ -163,14 +188,13 @@ function TaskDetails({
         </Prop>
 
         <Prop icon={<Flag />} label="Priority">
-          <Segmented
-            size="xs"
+          <Select
+            size="sm"
             value={task.priority}
             onChange={(v) => save({ priority: v })}
-            options={["Low", "Medium", "High", "Critical"].map((p) => ({
-              value: p,
-              label: <span className={cn(task.priority === p && TASK_PRIORITY_META[p].text)}>{TASK_PRIORITY_META[p].label}</span>,
-            }))}
+            aria-label="Priority"
+            className="max-w-60"
+            options={["Critical", "High", "Medium", "Low"].map((p) => ({ value: p, label: TASK_PRIORITY_META[p].label, icon: <PriorityIcon priority={p} /> }))}
           />
         </Prop>
 
@@ -187,10 +211,10 @@ function TaskDetails({
 
         {scheduledKey && (
           <Prop icon={<Clock />} label="Time">
-            <div className="flex max-w-72 items-center gap-1.5">
-              <TimePicker size="sm" value={task.startTime ?? ""} onChange={(v) => save({ startTime: v })} placeholder="Start" aria-label="Start time" />
+            <div className="grid max-w-72 grid-cols-[1fr_auto_1fr] items-center gap-1.5">
+              <TimePicker size="sm" icon={false} value={task.startTime ?? ""} onChange={(v) => save({ startTime: v })} placeholder="Start" aria-label="Start time" />
               <span className="text-muted-foreground">–</span>
-              <TimePicker size="sm" value={task.endTime ?? ""} onChange={(v) => save({ endTime: v })} placeholder="End" aria-label="End time" />
+              <TimePicker size="sm" icon={false} value={task.endTime ?? ""} onChange={(v) => save({ endTime: v })} placeholder="End" aria-label="End time" />
             </div>
           </Prop>
         )}
@@ -198,7 +222,7 @@ function TaskDetails({
         <Prop icon={<Hourglass />} label="Deadline">
           <DatePicker
             size="sm"
-            value={task.dueDate ? dateKey(new Date(task.dueDate)) : ""}
+            value={keyOf(task.dueDate, clock) ?? ""}
             onChange={(v) => save({ dueDate: v })}
             placeholder="No deadline"
             title="Deadline"
@@ -284,38 +308,17 @@ function Prop({ icon, label, children }: { icon: React.ReactNode; label: string;
 }
 
 function Subtasks({ task, setTask }: { task: TaskDTO; setTask: (t: TaskDTO) => void }) {
-  const { refresh } = useApp()
-  const toast = useToast()
+  const sub = useSubtasks(task, (subs) => setTask({ ...task, subtasks: subs }))
   const [draft, setDraft] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
-  const subtasks = task.subtasks ?? []
-  const doneCount = subtasks.filter((s) => s.status === "Completed").length
+  const subtasks = sub.subtasks
 
-  const setSubs = (subs: SubtaskDTO[]) => setTask({ ...task, subtasks: subs })
-
-  const add = async () => {
+  const add = () => {
     const title = draft.trim()
     if (!title) return
     setDraft("")
-    try {
-      const created = await api<SubtaskDTO>("/api/tasks", { body: { title, parentId: task.id } })
-      setSubs([...subtasks, created])
-      refresh()
-    } catch (err) {
-      toast.error((err as Error).message)
-    }
+    sub.add(title)
     inputRef.current?.focus()
-  }
-
-  const toggle = (s: SubtaskDTO) => {
-    const status = s.status === "Completed" ? "Todo" : "Completed"
-    setSubs(subtasks.map((x) => (x.id === s.id ? { ...x, status } : x)))
-    api(`/api/tasks/${s.id}`, { method: "PATCH", body: { status } }).then(refresh).catch((err) => toast.error(err.message))
-  }
-
-  const remove = (s: SubtaskDTO) => {
-    setSubs(subtasks.filter((x) => x.id !== s.id))
-    api(`/api/tasks/${s.id}`, { method: "DELETE" }).then(refresh).catch((err) => toast.error(err.message))
   }
 
   return (
@@ -324,21 +327,21 @@ function Subtasks({ task, setTask }: { task: TaskDTO; setTask: (t: TaskDTO) => v
         <p className="text-xs font-medium text-muted-foreground">Subtasks</p>
         {subtasks.length > 0 && (
           <span className="text-xs text-muted-foreground tabular">
-            {doneCount}/{subtasks.length}
+            {sub.done}/{subtasks.length} · {calcProgress(sub.done, subtasks.length)}%
           </span>
         )}
       </div>
-      {subtasks.length > 0 && <ProgressBar value={calcProgress(doneCount, subtasks.length)} />}
+      {subtasks.length > 0 && <ProgressBar value={calcProgress(sub.done, subtasks.length)} />}
       <div className="space-y-0.5">
         {subtasks.map((s) => (
           <div key={s.id} className="group flex items-center gap-2.5 rounded-lg px-1 py-1.5 hover:bg-muted">
-            <CheckCircle size="sm" checked={s.status === "Completed"} onChange={() => toggle(s)} label={s.title} />
-            <span className={cn("flex-1 text-[13px]", s.status === "Completed" && "text-muted-foreground line-through")}>{s.title}</span>
+            <StatusCheck size="sm" status={s.status} onToggle={() => sub.toggle(s)} label={s.title} />
+            <span className={cn("flex-1 text-[15px] sm:text-[13px]", s.status === "Completed" && "text-muted-foreground line-through")}>{s.title}</span>
             <button
               type="button"
-              onClick={() => remove(s)}
+              onClick={() => sub.remove(s)}
               aria-label={`Remove ${s.title}`}
-              className="cursor-pointer rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-danger focus:opacity-100"
+              className="cursor-pointer rounded p-1.5 text-muted-foreground hover:text-danger sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
             >
               <X className="size-3.5" />
             </button>

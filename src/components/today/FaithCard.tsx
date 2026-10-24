@@ -1,8 +1,10 @@
 "use client"
 
-import { useMemo } from "react"
-import { BookOpen, Check, Sparkles } from "lucide-react"
+import { useMemo, useSyncExternalStore } from "react"
+import { BookOpen, Check, ChevronLeft, Sparkles, Sunrise, Sunset } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { adhkarProgress } from "@/components/faith/AdhkarReaderModal"
+import { getQuranPageMeta } from "@/lib/faith/quranData"
 import { PrayerTimeService, type PrayerTimesResult } from "@/lib/prayer/PrayerTimeService"
 import { Card, CardHeader } from "@/components/ui/card"
 import { CheckCircle } from "@/components/ui/misc"
@@ -52,7 +54,7 @@ export function untilLabel(target: Date, now: Date) {
   return m ? `in ${h}h ${m}m` : `in ${h}h`
 }
 
-/** Quran and adhkar for today. */
+/** Other religious habits (Quran and adhkar have their own cards in the hero). */
 export function FaithCard({
   habits,
   onToggle,
@@ -66,7 +68,8 @@ export function FaithCard({
   onOpenAdhkar?: (type: "morning" | "evening") => void
   onOpenQuran?: () => void
 }) {
-  const others = habits.filter((h) => !h.isPrayer && (h.isQuran || h.isAdhkar || h.category === "Religious"))
+  // Quran and adhkar live in the Today hero (FaithPractices); this card only holds other religious habits
+  const others = habits.filter((h) => !h.isPrayer && !isQuranHabit(h) && !h.isAdhkar && h.category === "Religious")
   if (others.length === 0) return null
 
   return (
@@ -262,7 +265,7 @@ export function PrayerStrip({
             aria-pressed={habit.done}
             aria-label={`${p.name}${habit.done ? ", prayed" : ""}`}
             className={cn(
-              "relative flex cursor-pointer flex-col items-center gap-1 rounded-2xl border px-1 py-2.5 transition-all active:scale-95",
+              "relative flex cursor-pointer flex-col items-center gap-1 rounded-2xl border px-1 py-2.5 transition-all active:scale-95 lg:flex-row lg:gap-2.5 lg:px-3 lg:py-2 lg:text-left",
               habit.done
                 ? "border-success/30 bg-success-soft"
                 : isNow
@@ -270,14 +273,16 @@ export function PrayerStrip({
                   : "border-border bg-card/70",
             )}
           >
-            <span className={cn("text-[13px] font-semibold", habit.done ? "text-success" : isNow ? "text-primary" : upcoming ? "text-foreground" : "text-muted-foreground")}>{p.name}</span>
-            <span className="text-[10px] text-muted-foreground" dir="rtl">{p.ar}</span>
-            <span className={cn("text-[11px] tabular", isNow && !habit.done ? "font-semibold text-primary" : "text-muted-foreground")}>
+            <span className="flex flex-col items-center gap-1 lg:min-w-0 lg:flex-1 lg:items-start lg:gap-0">
+              <span className={cn("text-[13px] font-semibold", habit.done ? "text-success" : isNow ? "text-primary" : upcoming ? "text-foreground" : "text-muted-foreground")}>{p.name}</span>
+              <span className="text-[10px] text-muted-foreground" dir="rtl">{p.ar}</span>
+            </span>
+            <span className={cn("text-[11px] tabular lg:text-xs", isNow && !habit.done ? "font-semibold text-primary" : "text-muted-foreground")}>
               {isNow && !habit.done ? "Now" : time ? fmt(time).replace(/\s?(AM|PM)$/, "") : "—"}
             </span>
             <span
               className={cn(
-                "mt-0.5 flex size-5 items-center justify-center rounded-full border-[1.5px]",
+                "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border-[1.5px] lg:order-first lg:mt-0",
                 habit.done ? "animate-pop border-success bg-success text-white" : "border-border-strong text-transparent",
               )}
             >
@@ -287,5 +292,158 @@ export function PrayerStrip({
         )
       })}
     </div>
+  )
+}
+
+export const isQuranHabit = (h: { isQuran?: boolean; name: string }) => !!h.isQuran || h.name.toLowerCase().includes("quran") || h.name.includes("قرآن")
+export const adhkarHabit = (habits: TodayHabitDTO[], type: "morning" | "evening") =>
+  habits.find((h) => h.isAdhkar && (type === "morning" ? /morning|صباح/i.test(h.name) : /evening|مساء/i.test(h.name)))
+
+/** Saved adhkar progress on this device, as "done/total" (read without hydration mismatch). */
+function useAdhkarProgress(type: "morning" | "evening", day: string) {
+  return useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("storage", cb)
+      window.addEventListener("adhkar-progress", cb)
+      return () => {
+        window.removeEventListener("storage", cb)
+        window.removeEventListener("adhkar-progress", cb)
+      }
+    },
+    () => {
+      const p = adhkarProgress(type, day)
+      return `${p.done}/${p.total}`
+    },
+    () => "",
+  )
+}
+
+/**
+ * Morning adhkar, evening adhkar and the Quran portion as three cards under the prayers.
+ * The one that's due now is highlighted.
+ */
+export function FaithPractices({
+  habits,
+  today,
+  quranPage,
+  times,
+  now,
+  onOpenAdhkar,
+  onOpenQuran,
+}: {
+  habits: TodayHabitDTO[]
+  today: string
+  quranPage: number
+  times: PrayerTimesResult | null
+  now: Date | null
+  onOpenAdhkar: (type: "morning" | "evening") => void
+  onOpenQuran: () => void
+}) {
+  const morning = adhkarHabit(habits, "morning")
+  const evening = adhkarHabit(habits, "evening")
+  const quran = habits.find(isQuranHabit)
+  const mProg = useAdhkarProgress("morning", today)
+  const eProg = useAdhkarProgress("evening", today)
+  if (!morning && !evening && !quran) return null
+
+  const afterFajr = !!(times && now && now >= times.fajr)
+  const afterAsr = !!(times && now && now >= times.asr)
+  const per = Math.max(1, Math.round(quran?.targetValue ?? 2))
+  const start = quran?.done ? Math.max(1, quranPage - per) : quranPage
+  const end = Math.min(604, start + per - 1)
+  const surah = getQuranPageMeta(start).surahNameAr
+
+  return (
+    <div className="grid grid-cols-3 gap-2" dir="rtl">
+      {morning && (
+        <PracticeCard
+          title="أذكار الصباح"
+          sub="بعد الفجر"
+          icon={<Sunrise />}
+          done={morning.done}
+          due={afterFajr && !afterAsr}
+          progress={mProg}
+          onOpen={() => onOpenAdhkar("morning")}
+        />
+      )}
+      {evening && (
+        <PracticeCard
+          title="أذكار المساء"
+          sub="بعد العصر"
+          icon={<Sunset />}
+          done={evening.done}
+          due={afterAsr}
+          progress={eProg}
+          onOpen={() => onOpenAdhkar("evening")}
+        />
+      )}
+      {quran && (
+        <PracticeCard
+          title="ورد القرآن"
+          sub={`${surah} · ص ${start}${end !== start ? `–${end}` : ""}`}
+          icon={<BookOpen />}
+          done={quran.done}
+          due={!quran.done}
+          bar={(end / 604) * 100}
+          barLabel={`${Math.round((end / 604) * 100)}% من الختمة`}
+          onOpen={onOpenQuran}
+        />
+      )}
+    </div>
+  )
+}
+
+function PracticeCard({
+  title,
+  sub,
+  icon,
+  done,
+  due,
+  progress,
+  bar,
+  barLabel,
+  onOpen,
+}: {
+  title: string
+  sub: string
+  icon: React.ReactNode
+  done: boolean
+  due: boolean
+  progress?: string
+  bar?: number
+  barLabel?: string
+  onOpen: () => void
+}) {
+  const [d, t] = (progress ?? "").split("/").map(Number)
+  const started = !done && d > 0
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={cn(
+        "group flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl border px-1.5 py-2.5 text-center transition-all active:scale-[0.98] sm:flex-row sm:gap-3 sm:p-3 sm:text-right",
+        done ? "border-success/30 bg-success-soft/60" : due ? "border-primary/40 bg-card/80 ring-2 ring-primary/10" : "border-border bg-card/60",
+      )}
+    >
+      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl sm:size-10 [&_svg]:size-5", done ? "bg-success text-white" : "bg-primary-soft text-primary")}>
+        {done ? <Check strokeWidth={3} /> : icon}
+      </span>
+      <span className="w-full min-w-0 flex-1">
+        <span className="block font-arabic text-[15px] leading-tight font-bold sm:text-lg">{title}</span>
+        <span className="block truncate text-[10px] text-muted-foreground sm:text-xs">
+          {done ? "تمّ اليوم ✓" : started ? `${d} من ${t} · أكمل` : sub}
+        </span>
+        {bar !== undefined && (
+          <span className="mt-1.5 hidden items-center gap-2 sm:flex">
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-success" style={{ width: `${bar}%` }} /></span>
+            <span className="shrink-0 text-[10px] text-muted-foreground tabular">{barLabel}</span>
+          </span>
+        )}
+        {started && t > 0 && (
+          <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-muted"><span className="block h-full rounded-full bg-primary" style={{ width: `${(d / t) * 100}%` }} /></span>
+        )}
+      </span>
+      <ChevronLeft className="hidden size-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-x-0.5 sm:block" />
+    </button>
   )
 }

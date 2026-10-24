@@ -6,7 +6,8 @@ export const dynamic = "force-dynamic"
 
 export default async function FinancePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const requested = (await searchParams).month
-  const month = requested && /^\d{4}-\d{2}$/.test(requested) && requested <= currentMonth() ? requested : currentMonth()
+  const thisMonth = await currentMonth()
+  const month = requested && /^\d{4}-\d{2}$/.test(requested) && requested <= thisMonth ? requested : thisMonth
 
   const [accounts, transactions, summary] = await Promise.all([
     getAccounts(),

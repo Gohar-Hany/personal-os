@@ -1,5 +1,5 @@
-import { addMonths, format, startOfDay, addDays } from "date-fns"
 import { prisma } from "@/lib/prisma"
+import { userClock } from "@/lib/userTime"
 import type { TransactionType, AccountType, Currency } from "@/types"
 
 // ─── ACCOUNTS ─────────────────────────────────────────────
@@ -61,13 +61,14 @@ export async function deleteAccount(id: string) {
 
 // ─── TRANSACTIONS ──────────────────────────────────────────
 
-function monthRange(month: string) {
-  const [y, m] = month.split("-").map(Number)
-  const start = new Date(y, m - 1, 1)
-  return { start, end: addMonths(start, 1) }
+/** Month boundaries in the user's time zone (not the server's — it runs in UTC). */
+async function monthRange(month: string) {
+  return (await userClock()).monthRange(month)
 }
 
-export const currentMonth = () => format(new Date(), "yyyy-MM")
+export async function currentMonth() {
+  return (await userClock()).month
+}
 
 const txInclude = {
   account: { select: { id: true, name: true } },
@@ -139,7 +140,7 @@ export async function getTransactions(filters?: { month?: string; limit?: number
 
   let result = enriched
   if (filters?.month) {
-    const { start, end } = monthRange(filters.month)
+    const { start, end } = await monthRange(filters.month)
     result = result.filter((tx) => {
       const d = new Date(tx.date)
       return d >= start && d < end
@@ -194,8 +195,9 @@ export const NOT_ADJUSTMENT = { OR: [{ category: null }, { category: { not: ADJU
 
 export const isCashAccount = (a: { type: string }) => a.type === "Cash"
 
-export async function getMonthSummary(month: string = currentMonth()) {
-  const { start, end } = monthRange(month)
+export async function getMonthSummary(month?: string) {
+  month ??= await currentMonth()
+  const { start, end } = await monthRange(month)
   const [byType, byCategory] = await Promise.all([
     prisma.transaction.groupBy({ by: ["type"], where: { date: { gte: start, lt: end }, ...NOT_ADJUSTMENT }, _sum: { amount: true } }),
     prisma.transaction.groupBy({
@@ -222,12 +224,13 @@ export async function getMonthSummary(month: string = currentMonth()) {
 
 /** Compact numbers for the Today page. */
 export async function getMoneySnapshot() {
-  const today = startOfDay(new Date())
+  const clock = await userClock()
+  const { start: today, end: tomorrow } = clock.day(clock.today)
   const [accounts, month, spentToday] = await Promise.all([
     getAccounts(),
     getMonthSummary(),
     prisma.transaction.aggregate({
-      where: { type: "Expense", date: { gte: today, lt: addDays(today, 1) }, ...NOT_ADJUSTMENT },
+      where: { type: "Expense", date: { gte: today, lt: tomorrow }, ...NOT_ADJUSTMENT },
       _sum: { amount: true },
     }),
   ])

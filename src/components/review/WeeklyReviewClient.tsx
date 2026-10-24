@@ -5,13 +5,14 @@ import { format } from "date-fns"
 import { Check, ChevronDown } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, formatCurrency } from "@/lib/utils"
-import { toDate } from "@/lib/dates"
+import { parseDateKey } from "@/lib/dates"
+import { keyOf } from "@/lib/tasks/taskLogic"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/form"
 import { PageHeader } from "@/components/ui/misc"
 import { useToast } from "@/components/ui/toast"
-import { useApp } from "@/components/app/AppProvider"
+import { useApp, useClock } from "@/components/app/AppProvider"
 import type { WeeklyReviewDTO, WeekStats } from "@/types"
 
 const PROMPTS = [
@@ -24,7 +25,9 @@ const PROMPTS = [
 
 type TextKey = (typeof PROMPTS)[number]["key"]
 
-const weekRange = (start: string, end: string) => `${format(toDate(start)!, "MMM d")} – ${format(toDate(end)!, "MMM d")}`
+/** Week label from zone-aware day keys, so server and browser render the same text. */
+const weekRange = (start: string, end: string, tz: string) =>
+  `${format(parseDateKey(keyOf(start, { tz })!), "MMM d")} – ${format(parseDateKey(keyOf(end, { tz })!), "MMM d")}`
 
 export function WeeklyReviewClient({
   weekStart,
@@ -39,7 +42,7 @@ export function WeeklyReviewClient({
   current: WeeklyReviewDTO | null
   past: WeeklyReviewDTO[]
 }) {
-  const { refresh } = useApp()
+  const { refresh, clock } = useApp()
   const toast = useToast()
   const [form, setForm] = useState<Record<TextKey, string>>(() =>
     Object.fromEntries(PROMPTS.map((p) => [p.key, current?.[p.key] ?? ""])) as Record<TextKey, string>,
@@ -66,7 +69,7 @@ export function WeeklyReviewClient({
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader title="Weekly review" description={`This week · ${weekRange(weekStart, weekEnd)}`} />
+      <PageHeader title="Weekly review" description={`This week · ${weekRange(weekStart, weekEnd, clock.tz)}`} />
 
       <StatsGrid stats={stats} />
 
@@ -157,6 +160,7 @@ function StatsGrid({ stats }: { stats: WeekStats }) {
 }
 
 function PastReview({ review: r }: { review: WeeklyReviewDTO }) {
+  const clock = useClock()
   const [open, setOpen] = useState(false)
   const filled = PROMPTS.filter((p) => r[p.key])
   return (
@@ -168,7 +172,7 @@ function PastReview({ review: r }: { review: WeeklyReviewDTO }) {
         className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left hover:bg-subtle"
       >
         <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", !open && "-rotate-90")} />
-        <span className="flex-1 text-sm font-medium">{weekRange(r.weekStart, r.weekEnd)}</span>
+        <span className="flex-1 text-sm font-medium">{weekRange(r.weekStart, r.weekEnd, clock.tz)}</span>
         <span className="hidden text-xs text-muted-foreground sm:inline tabular">
           {r.tasksCompleted} tasks · {Math.round(r.habitCompletionPct)}% habits
         </span>

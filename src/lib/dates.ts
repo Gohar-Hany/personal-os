@@ -5,6 +5,7 @@ import {
   startOfDay,
   startOfWeek,
 } from "date-fns"
+import { dateOnlyInstant } from "@/lib/zone"
 
 /** The week starts on Saturday (Egyptian calendar). Used by habits and weekly review. */
 export const WEEK_STARTS_ON = 6 as const
@@ -31,17 +32,19 @@ export function toDate(v: string | Date | null | undefined): Date | null {
  * Normalise a date coming from an API body.
  * - undefined  → field not sent (leave unchanged)
  * - "" / null  → clear the field
- * - "YYYY-MM-DD" → local midnight (avoids the UTC off-by-one)
+ * - "YYYY-MM-DD" → 12:00 UTC of that date (see dateOnlyInstant: same day in every zone,
+ *   never the server's local midnight — the server runs in UTC on Vercel)
  * - ISO string → that instant
  */
 export function parseDateInput(v: unknown): Date | null | undefined {
   if (v === undefined) return undefined
   if (v === null || v === "") return null
-  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return parseDateKey(v)
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return dateOnlyInstant(v)
   const d = new Date(v as string)
   return isNaN(d.getTime()) ? null : d
 }
 
+/** Device-local start of today. Browser only — on the server use userClock() from lib/userTime. */
 export function todayStart(): Date {
   return startOfDay(new Date())
 }

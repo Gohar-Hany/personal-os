@@ -5,7 +5,8 @@ import { addDays, format, isSameDay } from "date-fns"
 import { Activity, Check, ChevronLeft, ChevronRight, Flame, Minus, Pause, Pencil, Play, Plus, Trash2 } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
-import { dateKey, todayStart, weekStartOf } from "@/lib/dates"
+import { dateKey, parseDateKey } from "@/lib/dates"
+import { weekStartKey } from "@/lib/zone"
 import { appliesOn, describeRecurrence } from "@/lib/habits/recurrence"
 import { useSynced } from "@/lib/hooks"
 import { Card } from "@/components/ui/card"
@@ -21,9 +22,9 @@ import type { HabitDTO } from "@/types"
 type Logs = Record<string, boolean>
 
 /** Consecutive applicable days completed, ending today (or yesterday if today isn't done yet). */
-function streakOf(h: HabitDTO, logs: Logs) {
+function streakOf(h: HabitDTO, logs: Logs, today: Date) {
   let streak = 0
-  let d = todayStart()
+  let d = today
   if (!logs[`${h.id}_${dateKey(d)}`]) d = addDays(d, -1)
   for (let i = 0; i < 365; i++, d = addDays(d, -1)) {
     if (!appliesOn(h, d)) continue
@@ -34,11 +35,11 @@ function streakOf(h: HabitDTO, logs: Logs) {
 }
 
 /** Completion over the last 30 days the habit applied. */
-function rate30(h: HabitDTO, logs: Logs) {
+function rate30(h: HabitDTO, logs: Logs, today: Date) {
   let hit = 0
   let total = 0
   for (let i = 0; i < 30; i++) {
-    const d = addDays(todayStart(), -i)
+    const d = addDays(today, -i)
     if (!appliesOn(h, d)) continue
     total++
     if (logs[`${h.id}_${dateKey(d)}`]) hit++
@@ -46,7 +47,20 @@ function rate30(h: HabitDTO, logs: Logs) {
   return total ? Math.round((hit / total) * 100) : 0
 }
 
-export function HabitsClient({ habits: serverHabits, logs: serverLogs, loadedFrom }: { habits: HabitDTO[]; logs: Logs; loadedFrom: string }) {
+export function HabitsClient({
+  habits: serverHabits,
+  logs: serverLogs,
+  loadedFrom,
+  today: todayKey,
+}: {
+  habits: HabitDTO[]
+  logs: Logs
+  loadedFrom: string
+  /** The user's today from the server, so the grid and the server agree on which day is "today". */
+  today: string
+}) {
+  const today = parseDateKey(todayKey)
+  const thisWeek = parseDateKey(weekStartKey(todayKey))
   const { refresh } = useApp()
   const toast = useToast()
   const confirm = useConfirm()
@@ -61,16 +75,15 @@ export function HabitsClient({ habits: serverHabits, logs: serverLogs, loadedFro
   const [weekOffset, setWeekOffset] = useState(0)
   const [dialog, setDialog] = useState<{ habit: HabitDTO | null } | null>(null)
 
-  const weekStart = addDays(weekStartOf(), weekOffset * 7)
+  const weekStart = addDays(thisWeek, weekOffset * 7)
   const weekKey = weekStart.getTime()
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(new Date(weekKey), i)), [weekKey])
-  const today = todayStart()
 
   const goWeek = async (delta: number) => {
     const next = weekOffset + delta
     if (next > 0) return
     setWeekOffset(next)
-    const start = dateKey(addDays(weekStartOf(), next * 7))
+    const start = dateKey(addDays(thisWeek, next * 7))
     if (start < from) {
       try {
         const more = await api<Logs>(`/api/habits/log?from=${start}&to=${from}`)
@@ -130,7 +143,7 @@ export function HabitsClient({ habits: serverHabits, logs: serverLogs, loadedFro
     <div className="space-y-5">
       <PageHeader
         title="Habits"
-        description="Tick any day of the week. Dashes are days a habit isn't scheduled."
+        description={<span className="hidden sm:inline">Tick any day of the week. Dashes are days a habit isn&apos;t scheduled.</span>}
         actions={
           <Button variant="primary" onClick={() => setDialog({ habit: null })}>
             <Plus /> New habit
@@ -153,8 +166,19 @@ export function HabitsClient({ habits: serverHabits, logs: serverLogs, loadedFro
           <EmptyState icon={<Activity />} title="No active habits" description="Add something you want to do regularly — it shows up on Today when it's due." />
         </Card>
       ) : (
-        groups.map((g) => (
-          <Card key={g.title} className="overflow-hidden">
+        <>
+        <MobileHabits
+          groups={groups}
+          days={days}
+          today={today}
+          logs={logs}
+          onToggle={toggle}
+          onEdit={(h) => setDialog({ habit: h })}
+          onPause={(h) => setActive(h, false)}
+          onDelete={remove}
+        />
+        {groups.map((g) => (
+          <Card key={g.title} className="hidden overflow-hidden sm:block">
             {/* Day header */}
             <div className="flex items-center border-b border-border bg-subtle px-4 py-2">
               <span className="flex-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{g.title}</span>
@@ -165,8 +189,8 @@ export function HabitsClient({ habits: serverHabits, logs: serverLogs, loadedFro
             </div>
             <div className="divide-y divide-border">
               {g.items.map((h) => {
-                const streak = streakOf(h, logs)
-                const rate = rate30(h, logs)
+                const streak = streakOf(h, logs, today)
+                const rate = rate30(h, logs, today)
                 return (
                   <div key={h.id} className="flex flex-col gap-2.5 px-4 py-3 sm:flex-row sm:items-center sm:gap-0">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -197,7 +221,8 @@ export function HabitsClient({ habits: serverHabits, logs: serverLogs, loadedFro
               })}
             </div>
           </Card>
-        ))
+        ))}
+        </>
       )}
 
       {paused.length > 0 && (
@@ -293,5 +318,145 @@ function HabitMenu({ habit, onEdit, onPause, onDelete, className }: { habit: Hab
         ...(builtIn ? [] : [{ separator: true } as const, { label: "Delete", icon: <Trash2 />, danger: true, onSelect: onDelete }]),
       ]}
     />
+  )
+}
+
+/**
+ * Phones: pick a day (today by default), then one big check per habit.
+ * The week shows as small dots so the row stays one line tall.
+ */
+function MobileHabits({
+  groups,
+  days,
+  today,
+  logs,
+  onToggle,
+  onEdit,
+  onPause,
+  onDelete,
+}: {
+  groups: { title: string; items: HabitDTO[] }[]
+  days: Date[]
+  today: Date
+  logs: Logs
+  onToggle: (h: HabitDTO, d: Date) => void
+  onEdit: (h: HabitDTO) => void
+  onPause: (h: HabitDTO) => void
+  onDelete: (h: HabitDTO) => void
+}) {
+  const [picked, setPicked] = useState<string | null>(null)
+  const keys = days.map(dateKey)
+  const todayKey = dateKey(today)
+  const selKey = picked && keys.includes(picked) ? picked : keys.includes(todayKey) ? todayKey : keys[6]
+  const sel = days[keys.indexOf(selKey)]
+  const all = groups.flatMap((g) => g.items)
+
+  const dayStats = (d: Date) => {
+    const due = all.filter((h) => appliesOn(h, d))
+    return { due: due.length, done: due.filter((h) => logs[`${h.id}_${dateKey(d)}`]).length }
+  }
+
+  return (
+    <div className="space-y-4 sm:hidden">
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((d) => {
+          const k = dateKey(d)
+          const { due, done } = dayStats(d)
+          const future = d > today
+          const pct = due ? done / due : 0
+          const isSel = k === selKey
+          return (
+            <button
+              key={k}
+              type="button"
+              disabled={future}
+              onClick={() => setPicked(k)}
+              aria-pressed={isSel}
+              aria-label={format(d, "EEEE MMM d")}
+              className={cn(
+                "flex cursor-pointer flex-col items-center gap-1 rounded-2xl py-2 transition-colors disabled:cursor-default disabled:opacity-35",
+                isSel ? "bg-primary text-primary-foreground" : "text-muted-foreground",
+              )}
+            >
+              <span className="text-[11px] font-medium">{format(d, "EEEEE")}</span>
+              <span className="relative flex size-8 items-center justify-center">
+                <svg viewBox="0 0 32 32" className="absolute inset-0 -rotate-90">
+                  <circle cx="16" cy="16" r="13" fill="none" strokeWidth="3" className={isSel ? "stroke-white/25" : "stroke-muted"} />
+                  {pct > 0 && (
+                    <circle cx="16" cy="16" r="13" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray={2 * Math.PI * 13} strokeDashoffset={2 * Math.PI * 13 * (1 - pct)} className={isSel ? "stroke-white" : pct === 1 ? "stroke-success" : "stroke-primary"} />
+                  )}
+                </svg>
+                <span className={cn("text-[13px] font-semibold tabular", !isSel && isSameDay(d, today) && "text-primary")}>{format(d, "d")}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <p className="text-[13px] text-muted-foreground">
+        {isSameDay(sel, today) ? "Today" : format(sel, "EEEE, MMM d")} · <span className="font-medium text-foreground tabular">{dayStats(sel).done}/{dayStats(sel).due}</span> done
+      </p>
+
+      {groups.map((g) => (
+        <Card key={g.title} className="overflow-hidden">
+          <div className="border-b border-border bg-subtle px-4 py-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{g.title}</div>
+          <div className="divide-y divide-border">
+            {g.items.map((h) => {
+              const applies = appliesOn(h, sel)
+              const done = !!logs[`${h.id}_${selKey}`]
+              const streak = streakOf(h, logs, today)
+              return (
+                <div key={h.id} className="flex items-center gap-3 py-2.5 pr-2 pl-4">
+                  <div className="min-w-0 flex-1">
+                    <p className={cn("truncate text-[15px] font-medium", done && "text-muted-foreground")}>{h.name}</p>
+                    <div className="mt-1 flex items-center gap-2.5">
+                      <span className="flex gap-[3px]" aria-label="This week">
+                        {days.map((d) => {
+                          const k = dateKey(d)
+                          const hit = logs[`${h.id}_${k}`]
+                          return (
+                            <span
+                              key={k}
+                              className={cn(
+                                "size-1.5 rounded-full",
+                                hit ? "bg-success" : !appliesOn(h, d) || d > today ? "bg-border" : "bg-border-strong",
+                                k === selKey && "ring-1 ring-primary ring-offset-1 ring-offset-card",
+                              )}
+                            />
+                          )
+                        })}
+                      </span>
+                      {streak > 0 && (
+                        <span className={cn("inline-flex items-center gap-0.5 text-xs tabular", streak >= 3 ? "font-medium text-warning" : "text-muted-foreground")}>
+                          <Flame className="size-3" />{streak}
+                        </span>
+                      )}
+                      {h.targetValue ? <span className="truncate text-xs text-muted-foreground">{h.targetValue} {h.unit ?? ""}</span> : null}
+                    </div>
+                  </div>
+                  <HabitMenu habit={h} onEdit={() => onEdit(h)} onPause={() => onPause(h)} onDelete={() => onDelete(h)} />
+                  {applies || done ? (
+                    <button
+                      type="button"
+                      onClick={() => onToggle(h, sel)}
+                      aria-pressed={done}
+                      aria-label={`${h.name}${done ? ", done" : ""}`}
+                      className={cn(
+                        "flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl border-2 transition-all active:scale-90",
+                        done ? "animate-pop border-success bg-success text-white" : "border-border-strong text-transparent",
+                      )}
+                    >
+                      <Check className="size-5" strokeWidth={3} />
+                    </button>
+                  ) : (
+                    <span className="flex size-11 shrink-0 items-center justify-center text-[11px] text-muted-foreground">Off</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+      ))}
+    </div>
   )
 }
