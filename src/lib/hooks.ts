@@ -40,3 +40,39 @@ export function haptic(ms = 8) {
     navigator.vibrate?.(ms)
   } catch {}
 }
+
+const STORED_EVENT = "stored-state"
+
+/**
+ * A remembered choice (view, grouping…) kept in this browser's localStorage.
+ * Renders `initial` on the server and during hydration, then the stored value.
+ */
+export function useStoredState<T extends string>(key: string, initial: T, allowed?: readonly T[]) {
+  const raw = useSyncExternalStore(
+    (cb) => {
+      const on = (e: Event) => (!(e instanceof CustomEvent) || e.detail === key) && cb()
+      window.addEventListener(STORED_EVENT, on)
+      window.addEventListener("storage", on)
+      return () => {
+        window.removeEventListener(STORED_EVENT, on)
+        window.removeEventListener("storage", on)
+      }
+    },
+    () => {
+      try {
+        return localStorage.getItem(key)
+      } catch {
+        return null
+      }
+    },
+    () => null,
+  )
+  const value = (raw !== null && (!allowed || allowed.includes(raw as T)) ? raw : initial) as T
+  const set = (next: T) => {
+    try {
+      localStorage.setItem(key, next)
+    } catch {}
+    window.dispatchEvent(new CustomEvent(STORED_EVENT, { detail: key }))
+  }
+  return [value, set] as const
+}

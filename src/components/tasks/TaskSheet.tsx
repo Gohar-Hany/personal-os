@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react"
 import { format } from "date-fns"
 import Link from "next/link"
-import { CalendarDays, ChevronRight, CircleDot, Clock, Flag, FolderKanban, Plus, Trash2, X, Hourglass, Milestone as MilestoneIcon } from "lucide-react"
+import { CalendarDays, ChevronRight, CircleDot, Clock, Flag, FolderKanban, Plus, Trash2, X, Hourglass, Milestone as MilestoneIcon, Tag } from "lucide-react"
 import { api } from "@/lib/api"
 import { cn, calcProgress } from "@/lib/utils"
-import { keyOf } from "@/lib/tasks/taskLogic"
+import { keyOf, parseTags } from "@/lib/tasks/taskLogic"
 import { TASK_PRIORITY_META } from "@/lib/constants"
 import { Dialog } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,7 @@ import { useTaskActions } from "@/components/tasks/useTasks"
 import { useSubtasks } from "@/components/tasks/useSubtasks"
 import { PriorityIcon, StatusCheck } from "@/components/tasks/TaskIcons"
 import { projectDot } from "@/components/tasks/TaskRow"
+import { LabelEditor } from "@/components/tasks/TaskLabels"
 import type { TaskDTO } from "@/types"
 
 const ESTIMATES = [
@@ -229,6 +230,10 @@ function TaskDetails({
             quick={["today", "tomorrow", "weekend", "nextweek"]}
             className="max-w-60"
           />
+        </Prop>
+
+        <Prop icon={<Tag />} label="Labels">
+          <LabelEditor value={parseTags(task.tags)} onChange={(labels) => save({ tags: labels.length ? JSON.stringify(labels) : null })} />
         </Prop>
 
         <Prop icon={<FolderKanban />} label="Project">

@@ -117,7 +117,7 @@ export function ProjectDetailClient({ project: serverProject }: { project: Proje
         </div>
       </header>
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         {/* ─── The work ─── */}
         <div className="min-w-0 space-y-3">
           <div className="flex items-center justify-between">
@@ -463,7 +463,7 @@ function ProjectBoard({ tasks }: { tasks: TaskDTO[] }) {
     { status: "Completed", label: "Done" },
   ]
   return (
-    <div className="grid gap-3 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       {cols.map((c) => {
         const items = tasks.filter((t) => t.status === c.status).sort(compareTasks)
         return (

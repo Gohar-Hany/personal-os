@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { getTask, updateTask, deleteTask } from "@/lib/tasks/taskService"
+import { getTask, updateTask, deleteTask, tagsInput } from "@/lib/tasks/taskService"
 import { route, BadRequest, requiredString, optionalString, optionalNumber, oneOf, clean } from "@/lib/http"
 import { parseDateInput } from "@/lib/dates"
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/constants"
@@ -30,6 +30,7 @@ export const PATCH = route(async (req: NextRequest, { params }: Ctx) => {
       startTime: optionalString(b.startTime),
       endTime: optionalString(b.endTime),
       estimatedMinutes: optionalNumber(b.estimatedMinutes),
+      tags: tagsInput(b.tags),
       order: optionalNumber(b.order) ?? undefined,
     }),
   )

@@ -35,6 +35,8 @@ export interface TaskDTO {
   startTime?: string | null
   endTime?: string | null
   estimatedMinutes?: number | null
+  /** Labels as a JSON array string, e.g. '["Hot","Lead"]' — read with parseTags. */
+  tags?: string | null
   completedAt?: string | null
   order: number
   createdAt: string

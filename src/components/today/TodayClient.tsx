@@ -15,7 +15,7 @@ import { Amount, CheckCircle, EmptyState, GroupLabel, ProgressBar, ProgressRing 
 import { Dialog } from "@/components/ui/dialog"
 import { useToast } from "@/components/ui/toast"
 import { useApp } from "@/components/app/AppProvider"
-import { TaskRow } from "@/components/tasks/TaskRow"
+import { TaskRow, TaskTitle } from "@/components/tasks/TaskRow"
 import { TaskInlineAdd } from "@/components/tasks/TaskInlineAdd"
 import { useLiveTasks, useTaskActions } from "@/components/tasks/useTasks"
 import { FaithCard, FaithPractices, PrayerStrip, adhkarHabit, isQuranHabit, nextPrayer, untilLabel, usePrayerTimes, type PrayerLocation } from "@/components/today/FaithCard"
@@ -215,7 +215,7 @@ export function TodayClient({
         </div>
       )}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_400px]">
         {/* ─── Left: tasks + focus ─── */}
         <div className="space-y-6">
           <Card className="overflow-hidden">
@@ -305,7 +305,7 @@ export function TodayClient({
                         className="flex w-full cursor-pointer items-center gap-2 rounded-md py-1 text-left text-[13px] hover:text-primary"
                       >
                         <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{t.title}</span>
+                        <TaskTitle title={t.title} />
                       </button>
                     ))}
                   </div>
@@ -481,7 +481,7 @@ function BacklogPicker({ today }: { today: string }) {
                 className="flex w-full cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted disabled:cursor-default disabled:opacity-60"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{t.title}</span>
+                  <TaskTitle title={t.title} className="block text-sm" />
                   {t.project && <span className="block truncate text-xs text-muted-foreground">{t.project.name}</span>}
                 </span>
                 <span className={cn("shrink-0 text-xs font-medium", isAdded ? "text-success" : "text-primary")}>{isAdded ? "Added ✓" : "+ Today"}</span>

@@ -104,7 +104,7 @@ export function SettingsClient({ settings }: { settings: SettingsDTO | null }) {
       </Section>
 
       <Section title="Prayer times" description="Times are calculated from your coordinates — no internet needed.">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="City / label">
             <Input value={form.location} onChange={(e) => set("location")(e.target.value)} />
           </Field>
@@ -124,7 +124,7 @@ export function SettingsClient({ settings }: { settings: SettingsDTO | null }) {
       </Section>
 
       <Section title="Money">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Main currency">
             <Select value={form.defaultCurrency} onChange={set("defaultCurrency")} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
           </Field>

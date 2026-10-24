@@ -1,33 +1,52 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertCircle, CalendarClock, CalendarX2, ChevronDown, CircleDot, Columns3, FolderKanban, Layers, List, Plus, Search, SlidersHorizontal, Sparkles, Sun, Zap } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { BUCKET_LABELS, bucketOf, dayLabel, effectiveKey, priorityRank, type TaskBucket, splitTicket } from "@/lib/tasks/taskLogic"
+import Link from "next/link"
+import {
+  AlertCircle, CalendarClock, CalendarDays, CalendarX2, CheckCircle2, ChevronDown, CircleDot, Columns3, Flag, FolderKanban,
+  Layers, List, Plus, Search, SlidersHorizontal, Sparkles, Sun, X, Zap,
+} from "lucide-react"
+import { cn, calcProgress } from "@/lib/utils"
+import { BUCKET_LABELS, bucketOf, daysBetween, dayLabel, effectiveKey, parseTags, priorityRank, splitTitle } from "@/lib/tasks/taskLogic"
 import { TASK_PRIORITY_META } from "@/lib/constants"
-import { useIsMobile, useMediaQuery } from "@/lib/hooks"
+import { addDaysToKey } from "@/lib/zone"
+import { useIsMobile, useMediaQuery, useStoredState } from "@/lib/hooks"
 import { Button } from "@/components/ui/button"
 import { Select } from "@/components/ui/form"
-import { EmptyState, Kbd, PageHeader, Segmented } from "@/components/ui/misc"
+import { EmptyState, Kbd, Segmented } from "@/components/ui/misc"
 import { useApp, useClock } from "@/components/app/AppProvider"
-import { TaskRow, projectDot } from "@/components/tasks/TaskRow"
+import { TASK_COLS, TaskRow, projectDot } from "@/components/tasks/TaskRow"
 import { TaskInlineAdd } from "@/components/tasks/TaskInlineAdd"
 import { TaskDetailPanel } from "@/components/tasks/TaskSheet"
 import { PriorityIcon } from "@/components/tasks/TaskIcons"
+import { LabelFilter, LabelList, collectLabels } from "@/components/tasks/TaskLabels"
 import { useLiveTasks, useTaskActions } from "@/components/tasks/useTasks"
 import type { TaskDTO } from "@/types"
 
-type SmartView = "all" | "overdue" | "today" | "doing" | "someday" | "important"
-type GroupBy = "date" | "project" | "priority"
+type SmartView = "all" | "today" | "week" | "important" | "someday" | "done"
+const GROUPINGS = ["project", "date", "priority", "status"] as const
+type GroupBy = (typeof GROUPINGS)[number]
 
-const DATE_ORDER: TaskBucket[] = ["overdue", "today", "tomorrow", "upcoming", "someday"]
+type AddDefaults = { scheduledDate?: string; projectId?: string; milestoneId?: string; priority?: string; status?: string }
 
-interface Group {
+/** One block of the list. Project headers (depth 0) are followed by their milestones (depth 1). */
+interface Section {
   key: string
   title: string
+  depth: 0 | 1
   icon?: React.ReactNode
   tone?: "danger"
   tasks: TaskDTO[]
+  /** Done vs. total for the whole milestone/project — not just what the filters show. */
+  progress?: { done: number; total: number }
+  /** Folding a project folds its milestones too. */
+  parent?: string
+  href?: string
+  add?: AddDefaults
+  /** Shown count when it differs from `tasks` (a project counts its milestones' tasks too). */
+  count?: number
+  /** Small uppercase heading (date/priority/status groups) vs. a named heading (project/milestone). */
+  caps?: boolean
 }
 
 export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
@@ -35,347 +54,516 @@ export function TasksClient({ tasks: serverTasks }: { tasks: TaskDTO[] }) {
   const clock = useClock()
   const all = useLiveTasks(serverTasks)
   const wide = useMediaQuery("(min-width: 1280px)")
-  const [view, setView] = useState<"list" | "board">("list")
+  const mobile = useIsMobile()
+  const [storedView, setView] = useStoredState<"list" | "board">("tasks:view", "list", ["list", "board"])
+  // Phones have no List/Board switch, so they always get the list
+  const view = mobile ? "list" : storedView
+  const [groupBy, setGroupBy] = useStoredState<GroupBy>("tasks:group", "project", GROUPINGS)
   const [smart, setSmart] = useState<SmartView>("all")
-  const [groupBy, setGroupBy] = useState<GroupBy>("date")
   const [search, setSearch] = useState("")
   const [projectId, setProjectId] = useState("")
+  const [labels, setLabels] = useState<string[]>([])
   const [showDone, setShowDone] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
-  const mobile = useIsMobile()
   const [showTools, setShowTools] = useState(false)
-  // Groups the user folded/unfolded; otherwise long "later" groups start folded on phones
+  const [adding, setAdding] = useState<string | null>(null)
+  // Sections the user folded/unfolded; otherwise long "later" date groups start folded on phones
   const [folded, setFolded] = useState<Record<string, boolean>>({})
-  const isFolded = (key: string, count: number) => folded[key] ?? (mobile && (key === "upcoming" || key === "someday") && count > 3)
+  const isFolded = (s: Section) =>
+    (s.parent ? !!folded[s.parent] : false) || (folded[s.key] ?? (mobile && (s.key === "later" || s.key === "someday") && s.tasks.length > 3))
 
+  const allLabels = useMemo(() => collectLabels(all.filter((t) => t.status !== "Cancelled")), [all])
+  const weekEnd = addDaysToKey(clock.today, 7)
+
+  // Search, project and label filters (the smart view comes on top)
   const base = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return all.filter(
-      (t) =>
-        t.status !== "Cancelled" &&
-        (!q || t.title.toLowerCase().includes(q) || t.project?.name.toLowerCase().includes(q)) &&
-        (!projectId || (projectId === "none" ? !t.projectId : t.projectId === projectId)),
-    )
-  }, [all, search, projectId])
-
-  const counts = useMemo(() => {
-    const c = { all: 0, overdue: 0, today: 0, doing: 0, someday: 0, important: 0 }
-    for (const t of base) {
-      const b = bucketOf(t, clock)
-      if (b === "done") continue
-      c.all++
-      if (b === "overdue") c.overdue++
-      if (b === "today") c.today++
-      if (b === "someday") c.someday++
-      if (t.status === "InProgress") c.doing++
-      if (t.priority === "High" || t.priority === "Critical") c.important++
-    }
-    return c
-  }, [base, clock])
+    const want = labels.map((l) => l.toLowerCase())
+    return all.filter((t) => {
+      if (t.status === "Cancelled") return false
+      if (q && !`${t.title} ${t.project?.name ?? ""} ${t.milestone?.title ?? ""} ${parseTags(t.tags).join(" ")}`.toLowerCase().includes(q)) return false
+      if (projectId && (projectId === "none" ? t.projectId : t.projectId !== projectId)) return false
+      if (want.length && !parseTags(t.tags).some((l) => want.includes(l.toLowerCase()))) return false
+      return true
+    })
+  }, [all, search, projectId, labels])
 
   const matchesSmart = useCallback(
     (t: TaskDTO) => {
       const b = bucketOf(t, clock)
+      if (smart === "done") return b === "done"
+      if (b === "done") return false
       switch (smart) {
-        case "overdue": return b === "overdue"
         case "today": return b === "today" || b === "overdue"
-        case "doing": return t.status === "InProgress"
-        case "someday": return b === "someday"
+        case "week": { const k = effectiveKey(t, clock); return !!k && k <= weekEnd }
         case "important": return t.priority === "High" || t.priority === "Critical"
+        case "someday": return b === "someday"
         default: return true
       }
     },
-    [smart, clock],
+    [smart, clock, weekEnd],
   )
 
-  const open = useMemo(() => base.filter((t) => bucketOf(t, clock) !== "done" && matchesSmart(t)), [base, clock, matchesSmart])
+  const counts = useMemo(() => {
+    const c = { all: 0, today: 0, week: 0, important: 0, someday: 0, done: 0, overdue: 0 }
+    for (const t of base) {
+      const b = bucketOf(t, clock)
+      if (b === "done") {
+        c.done++
+        continue
+      }
+      const k = effectiveKey(t, clock)
+      c.all++
+      if (b === "overdue") c.overdue++
+      if (b === "today" || b === "overdue") c.today++
+      if (k && k <= weekEnd) c.week++
+      if (b === "someday") c.someday++
+      if (t.priority === "High" || t.priority === "Critical") c.important++
+    }
+    return c
+  }, [base, clock, weekEnd])
+
+  const shown = useMemo(() => {
+    const list = base.filter(matchesSmart)
+    return smart === "done" ? list.sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? "")) : list
+  }, [base, matchesSmart, smart])
   const done = useMemo(
-    () => base.filter((t) => t.status === "Completed").sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? "")),
-    [base],
+    () => (smart === "all" ? base.filter((t) => t.status === "Completed").sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? "")) : []),
+    [base, smart],
   )
 
-  const groups: Group[] = useMemo(() => {
-    if (groupBy === "project") {
-      const map = new Map<string, TaskDTO[]>()
-      for (const t of open) map.set(t.projectId ?? "", [...(map.get(t.projectId ?? "") ?? []), t])
-      const order = [...projects.map((p) => p.id), ""]
-      return order
-        .filter((id) => map.has(id))
-        .map((id) => {
-          const p = projects.find((x) => x.id === id)
-          return {
-            key: id || "none",
-            title: p?.name ?? "No project",
-            icon: p ? <span className={cn("size-2 rounded-full", projectDot(p.id))} /> : <FolderKanban className="size-3.5" />,
-            tasks: map.get(id)!,
-          }
-        })
-    }
-    if (groupBy === "priority") {
-      return ["Critical", "High", "Medium", "Low"]
-        .map((p) => ({ key: p, title: TASK_PRIORITY_META[p].label, icon: <PriorityIcon priority={p} className="size-3.5" />, tasks: open.filter((t) => t.priority === p) }))
-        .filter((g) => g.tasks.length)
-    }
-    const by: Record<TaskBucket, TaskDTO[]> = { overdue: [], today: [], tomorrow: [], upcoming: [], someday: [], done: [] }
-    for (const t of open) by[bucketOf(t, clock)].push(t)
-    return DATE_ORDER.filter((b) => by[b].length).map((b) => ({ key: b, title: BUCKET_LABELS[b], tone: b === "overdue" ? ("danger" as const) : undefined, tasks: by[b] }))
-  }, [groupBy, open, projects, clock])
-
-  const ordered = useMemo(() => [...groups.flatMap((g) => g.tasks), ...(showDone ? done.slice(0, 50) : [])], [groups, done, showDone])
+  const sections: Section[] = useMemo(
+    () => (smart === "done" ? [{ key: "done", title: "Completed", depth: 0, caps: true, tasks: shown }] : buildSections(groupBy, shown, all, projects, clock)),
+    [smart, groupBy, shown, all, projects, clock],
+  )
+  const codeColumn = useMemo(() => shown.some((t) => splitTitle(t.title).code), [shown])
+  const ordered = [...sections.filter((s) => !isFolded(s)).flatMap((s) => s.tasks), ...(showDone ? done.slice(0, 50) : [])]
 
   // Side panel on wide screens, sheet elsewhere
   const openFn = useCallback((id: string) => (wide ? setSelected(id) : openTask(id)), [wide, openTask])
   const selectedTask = wide && selected ? all.find((t) => t.id === selected) : undefined
-
   useListKeyboard(ordered, selected, wide ? setSelected : undefined)
 
-  const filtering = !!(search || projectId || smart !== "all")
-  const SMART: { value: SmartView; label: string; icon: React.ReactNode; count: number; tone?: string }[] = [
-    { value: "all", label: "All open", icon: <Layers />, count: counts.all },
-    { value: "overdue", label: "Overdue", icon: <AlertCircle />, count: counts.overdue, tone: "text-danger" },
-    { value: "today", label: "Today", icon: <Sun />, count: counts.today + counts.overdue },
-    { value: "doing", label: "In progress", icon: <CircleDot />, count: counts.doing },
-    { value: "important", label: "Important", icon: <Zap />, count: counts.important },
-    { value: "someday", label: "No date", icon: <CalendarX2 />, count: counts.someday },
+  const filtering = !!(search || projectId || labels.length)
+  const clearFilters = () => {
+    setSearch("")
+    setProjectId("")
+    setLabels([])
+    setSmart("all")
+  }
+
+  const TABS: { value: SmartView; label: string; icon: React.ReactNode; count: number; hideEmpty?: boolean }[] = [
+    { value: "all", label: "All", icon: <Layers />, count: counts.all },
+    { value: "today", label: "Today", icon: <Sun />, count: counts.today },
+    { value: "week", label: "Next 7 days", icon: <CalendarDays />, count: counts.week },
+    { value: "important", label: "Important", icon: <Zap />, count: counts.important, hideEmpty: true },
+    { value: "someday", label: "No date", icon: <CalendarX2 />, count: counts.someday, hideEmpty: true },
+    { value: "done", label: "Done", icon: <CheckCircle2 />, count: counts.done, hideEmpty: true },
   ]
 
-  return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Tasks"
-        description={
-          <span className="hidden sm:inline">
-            Navigate with <Kbd>↑</Kbd> <Kbd>↓</Kbd> · <Kbd>X</Kbd> complete · <Kbd>→</Kbd> subtasks · <Kbd>N</Kbd> new
-          </span>
-        }
-        actions={
-          <>
-            <Segmented
-              className="hidden sm:inline-flex"
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "list", label: <><List /> List</> },
-                { value: "board", label: <><Columns3 /> Board</> },
-              ]}
-            />
-            <Button variant="primary" onClick={() => quickAdd({ mode: "task" })} className="hidden sm:inline-flex">
-              <Plus /> New task
-            </Button>
-          </>
-        }
-        className="max-sm:hidden"
-      />
+  const toolbar = (
+    <div className={cn("flex-col gap-2 border-b border-border p-3 sm:flex @3xl/list:flex-row @3xl/list:items-center", showTools || search ? "flex" : "hidden")}>
+      <div className="relative min-w-0 flex-1 @3xl/list:max-w-72">
+        <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search tasks, clients, labels"
+          aria-label="Search tasks"
+          className="h-10 w-full rounded-lg border border-border bg-card pr-8 pl-9 text-base outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/15 sm:h-9 sm:text-sm"
+        />
+        {search && (
+          <button type="button" onClick={() => setSearch("")} aria-label="Clear search" className="absolute top-1/2 right-2 -translate-y-1/2 cursor-pointer rounded p-1 text-muted-foreground hover:text-foreground">
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="hidden flex-1 @3xl/list:block" />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 @3xl/list:flex">
+        <LabelFilter labels={allLabels} value={labels} onChange={setLabels} className="@3xl/list:w-36" />
+        <Select
+          value={projectId}
+          onChange={setProjectId}
+          placeholder="All projects"
+          icon={<FolderKanban />}
+          options={[{ value: "none", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name, dot: projectDot(p.id) }))]}
+          className="@3xl/list:w-40"
+          aria-label="Filter by project"
+        />
+        {view === "list" && smart !== "done" && (
+          <Select
+            value={groupBy}
+            onChange={(v) => setGroupBy(v as GroupBy)}
+            icon={<Layers />}
+            options={[
+              { value: "project", label: "By project", icon: <FolderKanban /> },
+              { value: "date", label: "By date", icon: <CalendarClock /> },
+              { value: "priority", label: "By priority", icon: <Flag /> },
+              { value: "status", label: "By status", icon: <CircleDot /> },
+            ]}
+            className="col-span-2 sm:col-span-1 @3xl/list:w-40"
+            aria-label="Group tasks"
+          />
+        )}
+      </div>
+    </div>
+  )
 
-      {/* Phones: compact title row — search and filters only when asked for */}
-      <div className="flex items-center gap-2 sm:hidden">
-        <h1 className="flex-1 text-2xl font-semibold tracking-tight">Tasks</h1>
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      {/* Header */}
+      <div className="flex items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-semibold tracking-tight">Tasks</h1>
+          <p className="mt-0.5 text-[13px] text-muted-foreground">
+            <span className="text-foreground tabular">{counts.all}</span> open
+            {counts.overdue > 0 && (
+              <>
+                {" · "}
+                <button type="button" onClick={() => setSmart("today")} className="cursor-pointer font-medium text-danger tabular hover:underline">
+                  {counts.overdue} overdue
+                </button>
+              </>
+            )}
+            {" · "}
+            <span className="tabular">{counts.week}</span> in the next 7 days
+            <span className="hidden lg:inline">
+              {" · "}
+              <Kbd>↑</Kbd> <Kbd>↓</Kbd> move · <Kbd>X</Kbd> done · <Kbd>N</Kbd> new
+            </span>
+          </p>
+        </div>
         <Button
           size="icon"
-          variant={showTools || search ? "secondary" : "ghost"}
+          variant={showTools || filtering ? "secondary" : "ghost"}
           aria-label="Search and filters"
           aria-pressed={showTools}
           onClick={() => setShowTools((v) => !v)}
-          className="relative"
+          className="relative sm:hidden"
         >
           <SlidersHorizontal />
-          {(search || projectId || groupBy !== "date") && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary" />}
+          {filtering && <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-primary" />}
+        </Button>
+        <Segmented
+          className="hidden sm:inline-flex"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "list", label: <><List /> List</> },
+            { value: "board", label: <><Columns3 /> Board</> },
+          ]}
+        />
+        <Button variant="primary" onClick={() => quickAdd({ mode: "task" })} className="hidden sm:inline-flex">
+          <Plus /> New task
         </Button>
       </div>
 
-      {/* Smart views — one tap to what matters */}
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:px-0">
-        {SMART.map((s) => (
+      {/* Views */}
+      <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:gap-1 sm:border-b sm:border-border sm:px-0">
+        {TABS.filter((t) => !t.hideEmpty || t.count > 0 || smart === t.value).map((t) => (
           <button
-            key={s.value}
+            key={t.value}
             type="button"
-            onClick={() => setSmart(s.value)}
-            aria-pressed={smart === s.value}
-            disabled={s.count === 0 && s.value !== "all" && smart !== s.value}
+            onClick={() => setSmart(t.value)}
+            aria-pressed={smart === t.value}
             className={cn(
-              "flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors disabled:cursor-default disabled:opacity-40 sm:h-auto sm:gap-2 sm:rounded-xl sm:py-2 [&_svg]:size-4",
-              smart === s.value ? "border-primary/40 bg-primary-soft text-primary" : "border-border bg-card text-muted-foreground hover:text-foreground",
+              "flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium whitespace-nowrap transition-colors [&_svg]:size-4",
+              "sm:-mb-px sm:h-10 sm:rounded-none sm:border-0 sm:border-b-2 sm:px-3",
+              smart === t.value
+                ? "border-primary/40 bg-primary-soft text-primary sm:border-primary sm:bg-transparent sm:text-foreground"
+                : "border-border bg-card text-muted-foreground hover:text-foreground sm:border-transparent sm:bg-transparent",
             )}
           >
-            <span className={cn(smart !== s.value && s.tone)}>{s.icon}</span>
-            {s.label}
-            <span className={cn("rounded-md px-1.5 text-xs tabular", smart === s.value ? "bg-primary/15" : "bg-muted", s.tone && s.count > 0 && smart !== s.value && s.tone)}>{s.count}</span>
+            <span className={cn(smart === t.value && "sm:text-primary")}>{t.icon}</span>
+            {t.label}
+            <span className={cn("rounded-md px-1.5 text-xs tabular", smart === t.value ? "bg-primary/15 sm:bg-primary-soft sm:text-primary" : "bg-muted")}>{t.count}</span>
           </button>
         ))}
       </div>
 
-      {/* Search, project, grouping — always shown on desktop, on demand on phones */}
-      <div className={cn("flex-col gap-2 sm:flex sm:flex-row", showTools || search ? "flex" : "hidden")}>
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tasks or projects"
-            aria-label="Search tasks"
-            className="h-10 w-full rounded-lg border border-border bg-card pr-3 pl-9 text-base outline-none placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/15 sm:h-9 sm:text-sm"
-          />
+      {filtering && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-muted-foreground">Showing</span>
+          {search && <FilterPill onClear={() => setSearch("")}>“{search}”</FilterPill>}
+          {projectId && <FilterPill onClear={() => setProjectId("")}>{projectId === "none" ? "No project" : projects.find((p) => p.id === projectId)?.name}</FilterPill>}
+          {labels.map((l) => (
+            <FilterPill key={l} onClear={() => setLabels(labels.filter((x) => x !== l))}>{l}</FilterPill>
+          ))}
+          <button type="button" onClick={clearFilters} className="cursor-pointer px-1 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+            Clear all
+          </button>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex">
-          <Select
-            value={projectId}
-            onChange={setProjectId}
-            placeholder="All projects"
-            icon={<FolderKanban />}
-            options={[{ value: "none", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name, icon: <span className={cn("size-2 rounded-full", projectDot(p.id))} /> }))]}
-            className="sm:w-48"
-            aria-label="Filter by project"
-          />
-          {view === "list" && (
-            <Select
-              value={groupBy}
-              onChange={(v) => setGroupBy(v as GroupBy)}
-              icon={<Layers />}
-              options={[
-                { value: "date", label: "By date", icon: <CalendarClock /> },
-                { value: "project", label: "By project", icon: <FolderKanban /> },
-                { value: "priority", label: "By priority", icon: <Zap /> },
-              ]}
-              className="sm:w-44"
-              aria-label="Group tasks"
-            />
-          )}
-        </div>
-      </div>
+      )}
 
       {view === "list" ? (
-        <div className={cn("grid items-start gap-5", wide && "grid-cols-[minmax(0,1fr)_420px]")}>
-          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-card)]">
-            <TaskInlineAdd
-              className="border-b border-border"
-              defaults={{
-                projectId: projectId && projectId !== "none" ? projectId : undefined,
-                scheduledDate: smart === "today" ? clock.today : undefined,
-              }}
-              placeholder={smart === "today" ? "Add a task for today" : mobile ? "Add a task" : "Add a task — try “Review PR tomorrow 8pm #saudi !high”"}
-            />
-            {open.length === 0 && done.length === 0 ? (
+        <div className={cn("grid grid-cols-1 items-start gap-5", selectedTask && "grid-cols-[minmax(0,1fr)_400px]")}>
+          <div className="@container/list rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] [overflow:clip]">
+            {toolbar}
+            {smart !== "done" && (
+              <TaskInlineAdd
+                className="border-b border-border"
+                defaults={{
+                  projectId: projectId && projectId !== "none" ? projectId : undefined,
+                  scheduledDate: smart === "today" ? clock.today : undefined,
+                }}
+                placeholder={smart === "today" ? "Add a task for today" : mobile ? "Add a task" : "Add a task — try “Call clinic tomorrow 8pm #sales !high”"}
+              />
+            )}
+
+            {shown.length === 0 && done.length === 0 ? (
               <EmptyState
                 icon={<Sparkles />}
-                title={filtering ? "Nothing here" : "No tasks yet"}
-                description={filtering ? "Try another view, project or search." : "Add your first task above."}
-                action={filtering && <Button variant="outline" onClick={() => { setSmart("all"); setSearch(""); setProjectId("") }}>Show all tasks</Button>}
+                title={filtering || smart !== "all" ? "Nothing here" : "No tasks yet"}
+                description={filtering || smart !== "all" ? "Try another view or clear the filters." : "Add your first task above."}
+                action={(filtering || smart !== "all") && <Button variant="outline" onClick={clearFilters}>Show all tasks</Button>}
               />
             ) : (
-              <div className="pb-2">
-                {groups.map((g) => (
-                  <section key={g.key}>
-                    <button
-                      type="button"
-                      onClick={() => setFolded((f) => ({ ...f, [g.key]: !isFolded(g.key, g.tasks.length) }))}
-                      aria-expanded={!isFolded(g.key, g.tasks.length)}
-                      className={cn("sticky top-0 z-[2] flex w-full cursor-pointer items-center gap-2 border-b border-border bg-subtle/95 px-4 py-2.5 text-left text-xs font-semibold backdrop-blur sm:py-2", g.tone === "danger" ? "text-danger" : "text-muted-foreground")}
-                    >
-                      <ChevronDown className={cn("size-3.5 transition-transform", isFolded(g.key, g.tasks.length) && "-rotate-90")} />
-                      {g.icon}
-                      <span className="tracking-wide uppercase">{g.title}</span>
-                      <span className="font-medium tabular opacity-70">{g.tasks.length}</span>
-                    </button>
-                    {!isFolded(g.key, g.tasks.length) && <div className="divide-y divide-border/60">
-                      {g.tasks.map((t) => (
-                        <TaskRow
-                          key={t.id}
-                          task={t}
-                          onOpen={openFn}
-                          selected={selectedTask?.id === t.id}
-                          showDate={!(groupBy === "date" && g.key === "today")}
-                          showProject={groupBy !== "project" && !projectId}
+              <>
+                {/* Column headings (desktop) */}
+                <div className="hidden h-9 items-center gap-3 border-b border-border px-4 text-[11px] font-medium tracking-wide text-muted-foreground uppercase sm:flex">
+                  <span className="w-[18px] shrink-0" />
+                  {codeColumn && <span className={TASK_COLS.code}>ID</span>}
+                  <span className="min-w-0 flex-1">Task</span>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className={TASK_COLS.labels}>Labels</span>
+                    <span className={TASK_COLS.priority}>Priority</span>
+                    <span className={TASK_COLS.date}>Do on</span>
+                    <span className={TASK_COLS.deadline}>Deadline</span>
+                  </div>
+                  <span className={TASK_COLS.menu} />
+                </div>
+
+                <div className="pb-1">
+                  {sections.map((s) =>
+                    s.parent && folded[s.parent] ? null : (
+                      <section key={s.key}>
+                        <SectionHeader
+                          section={s}
+                          folded={isFolded(s)}
+                          onFold={() => setFolded((f) => ({ ...f, [s.key]: !isFolded(s) }))}
+                          onAdd={s.add ? () => setAdding(s.key) : undefined}
                         />
-                      ))}
-                    </div>}
-                  </section>
-                ))}
-                {open.length === 0 && <p className="px-4 py-6 text-center text-[13px] text-muted-foreground">Nothing open in this view. 🎉</p>}
-                {done.length > 0 && smart === "all" && (
-                  <section>
-                    <button
-                      type="button"
-                      onClick={() => setShowDone((v) => !v)}
-                      aria-expanded={showDone}
-                      className="flex w-full cursor-pointer items-center gap-1.5 border-t border-border px-4 pt-3 pb-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground"
-                    >
-                      <ChevronDown className={cn("size-3.5 transition-transform", !showDone && "-rotate-90")} />
-                      Completed <span className="font-medium tabular opacity-70">{done.length}</span>
-                    </button>
-                    {showDone && (
-                      <div className="divide-y divide-border/60">
-                        {done.slice(0, 50).map((t) => <TaskRow key={t.id} task={t} onOpen={openFn} selected={selectedTask?.id === t.id} showProject={!projectId} />)}
-                      </div>
-                    )}
-                  </section>
-                )}
-              </div>
+                        {!isFolded(s) && (
+                          <div className="divide-y divide-border/60">
+                            {adding === s.key && (
+                              <TaskInlineAdd
+                                autoFocus
+                                defaults={s.add}
+                                onCancel={() => setAdding(null)}
+                                placeholder={`Add to ${s.title}`}
+                                className={cn("bg-primary-soft/30", s.depth === 1 && "sm:pl-9")}
+                              />
+                            )}
+                            {s.tasks.map((t) => (
+                              <TaskRow
+                                key={t.id}
+                                task={t}
+                                table
+                                codeColumn={codeColumn}
+                                onOpen={openFn}
+                                selected={selectedTask?.id === t.id}
+                                showProject={groupBy !== "project" && !projectId}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    ),
+                  )}
+                  {shown.length === 0 && <p className="px-4 py-8 text-center text-[13px] text-muted-foreground">Nothing open in this view. 🎉</p>}
+
+                  {done.length > 0 && (
+                    <section>
+                      <button
+                        type="button"
+                        onClick={() => setShowDone((v) => !v)}
+                        aria-expanded={showDone}
+                        className="flex w-full cursor-pointer items-center gap-2 border-t border-border px-4 py-2.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase hover:text-foreground"
+                      >
+                        <ChevronDown className={cn("size-3.5 transition-transform", !showDone && "-rotate-90")} />
+                        <CheckCircle2 className="size-3.5 text-success" />
+                        Completed <span className="font-medium tabular opacity-70">{done.length}</span>
+                      </button>
+                      {showDone && (
+                        <div className="divide-y divide-border/60 border-t border-border/60">
+                          {done.slice(0, 50).map((t) => (
+                            <TaskRow key={t.id} task={t} table codeColumn={codeColumn} onOpen={openFn} selected={selectedTask?.id === t.id} showProject={!projectId} />
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  )}
+                </div>
+              </>
             )}
           </div>
 
-          {wide && (
+          {selectedTask && (
             <aside className="sticky top-6 max-h-[calc(100dvh-3rem)] overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-[var(--shadow-card)]">
-              {selectedTask ? (
-                <TaskDetailPanel key={selectedTask.id} taskId={selectedTask.id} onClose={() => setSelected(null)} />
-              ) : (
-                <SummaryPanel tasks={open} />
-              )}
+              <TaskDetailPanel key={selectedTask.id} taskId={selectedTask.id} onClose={() => setSelected(null)} />
             </aside>
           )}
         </div>
       ) : (
-        <Board tasks={base.filter((t) => matchesSmart(t) || t.status === "Completed")} />
+        <>
+          <div className={cn("@container/list rounded-2xl border border-border bg-card [overflow:clip] [&>div]:border-b-0", !(showTools || search) && "max-sm:hidden")}>{toolbar}</div>
+          <Board tasks={base.filter((t) => matchesSmart(t) || (smart !== "done" && t.status === "Completed"))} />
+        </>
       )}
     </div>
   )
 }
 
-/** What the side panel shows when no task is selected: a quick read of the list. */
-function SummaryPanel({ tasks }: { tasks: TaskDTO[] }) {
-  const clock = useClock()
-  const { projects } = useApp()
-  const upcoming = tasks
-    .map((t) => ({ t, k: effectiveKey(t, clock) }))
-    .filter((x) => x.k && x.k > clock.today)
-    .sort((a, b) => (a.k! < b.k! ? -1 : 1))
-    .slice(0, 5)
-  const byProject = projects
-    .map((p) => ({ p, n: tasks.filter((t) => t.projectId === p.id).length }))
-    .filter((x) => x.n)
-    .sort((a, b) => b.n - a.n)
-    .slice(0, 5)
+function FilterPill({ children, onClear }: { children: React.ReactNode; onClear: () => void }) {
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-sm font-semibold">Select a task</p>
-        <p className="mt-0.5 text-[13px] text-muted-foreground">Its details open here. Use ↑ ↓ to move through the list.</p>
-      </div>
-      {upcoming.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Coming up</p>
-          {upcoming.map(({ t, k }) => (
-            <div key={t.id} className="flex items-center gap-2 text-[13px]">
-              <PriorityIcon priority={t.priority} className="size-3.5" />
-              <span className="min-w-0 flex-1 truncate">{splitTicket(t.title).text}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">{dayLabel(k!, clock.today)}</span>
-            </div>
-          ))}
-        </div>
+    <span className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-card pr-1 pl-2.5 font-medium">
+      {children}
+      <button type="button" onClick={onClear} aria-label="Remove filter" className="cursor-pointer rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+        <X className="size-3" />
+      </button>
+    </span>
+  )
+}
+
+function SectionHeader({ section: s, folded, onFold, onAdd }: { section: Section; folded: boolean; onFold: () => void; onAdd?: () => void }) {
+  const pct = s.progress && s.progress.total ? calcProgress(s.progress.done, s.progress.total) : null
+  return (
+    <div
+      className={cn(
+        "group/sec sticky top-0 z-[2] flex items-center gap-2 border-b border-border pr-2 backdrop-blur",
+        s.depth === 0 ? "bg-subtle/95 pl-3" : "bg-card/95 pl-3 sm:pl-9",
+        s.caps ? "h-10 sm:h-9" : s.depth === 0 ? "h-11" : "h-10",
       )}
-      {byProject.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Open by project</p>
-          {byProject.map(({ p, n }) => (
-            <div key={p.id} className="flex items-center gap-2 text-[13px]">
-              <span className={cn("size-2 rounded-full", projectDot(p.id))} />
-              <span className="min-w-0 flex-1 truncate">{p.name}</span>
-              <span className="text-xs text-muted-foreground tabular">{n}</span>
-            </div>
-          ))}
-        </div>
+    >
+      <button
+        type="button"
+        onClick={onFold}
+        aria-expanded={!folded}
+        className={cn("flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch text-left", s.tone === "danger" ? "text-danger" : s.caps ? "text-muted-foreground" : "text-foreground")}
+      >
+        <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", folded && "-rotate-90")} />
+        {s.icon}
+        <span className={cn("min-w-0 truncate", s.caps ? "text-xs font-semibold tracking-wide uppercase" : s.depth === 0 ? "text-sm font-semibold" : "text-[13px] font-medium")}>{s.title}</span>
+        <span className={cn("shrink-0 text-xs font-medium text-muted-foreground tabular", pct !== null && "max-sm:hidden")}>{s.count ?? s.tasks.length}</span>
+      </button>
+      {pct !== null && (
+        <span className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground tabular" title={`${s.progress!.done} of ${s.progress!.total} done`}>
+          <span>{s.progress!.done}/{s.progress!.total}</span>
+          <span className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted sm:block">
+            <span className={cn("block h-full rounded-full", pct === 100 ? "bg-success" : "bg-primary")} style={{ width: `${Math.max(pct, 4)}%` }} />
+          </span>
+          <span className="hidden w-8 text-right sm:inline">{pct}%</span>
+        </span>
+      )}
+      {s.href && (
+        <Link href={s.href} className="hidden shrink-0 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground sm:inline">
+          Open
+        </Link>
+      )}
+      {onAdd && (
+        <button
+          type="button"
+          onClick={onAdd}
+          aria-label={`Add a task to ${s.title}`}
+          className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground sm:size-7 lg:opacity-0 lg:group-hover/sec:opacity-100 lg:focus-visible:opacity-100"
+        >
+          <Plus className="size-4" />
+        </button>
       )}
     </div>
   )
+}
+
+/** Turns the visible tasks into list sections for the chosen grouping. */
+function buildSections(
+  groupBy: GroupBy,
+  tasks: TaskDTO[],
+  everything: TaskDTO[],
+  projects: ReturnType<typeof useApp>["projects"],
+  clock: ReturnType<typeof useClock>,
+): Section[] {
+  if (groupBy === "project") {
+    const out: Section[] = []
+    const progressOf = (match: (t: TaskDTO) => boolean) => {
+      const list = everything.filter((t) => t.status !== "Cancelled" && match(t))
+      return { done: list.filter((t) => t.status === "Completed").length, total: list.length }
+    }
+    for (const p of projects) {
+      const mine = tasks.filter((t) => t.projectId === p.id)
+      if (!mine.length) continue
+      const loose = mine.filter((t) => !t.milestoneId || !p.milestones.some((m) => m.id === t.milestoneId))
+      out.push({
+        key: `p:${p.id}`,
+        title: p.name,
+        depth: 0,
+        icon: <span className={cn("size-2.5 shrink-0 rounded-full", projectDot(p.id))} />,
+        tasks: loose,
+        count: mine.length,
+        progress: progressOf((t) => t.projectId === p.id),
+        href: `/projects/${p.id}`,
+        add: { projectId: p.id },
+      })
+      for (const m of p.milestones) {
+        const inMs = mine.filter((t) => t.milestoneId === m.id)
+        if (!inMs.length) continue
+        out.push({
+          key: `m:${m.id}`,
+          title: m.title,
+          depth: 1,
+          parent: `p:${p.id}`,
+          tasks: inMs,
+          progress: progressOf((t) => t.milestoneId === m.id),
+          add: { projectId: p.id, milestoneId: m.id },
+        })
+      }
+    }
+    // Tasks whose project isn't in the list (archived) or that have none
+    const known = new Set(projects.map((p) => p.id))
+    const rest = tasks.filter((t) => !t.projectId || !known.has(t.projectId))
+    if (rest.length) out.push({ key: "none", title: "No project", depth: 0, icon: <FolderKanban className="size-3.5 text-muted-foreground" />, tasks: rest, add: {} })
+    return out
+  }
+
+  if (groupBy === "priority") {
+    return ["Critical", "High", "Medium", "Low"]
+      .map((p) => ({
+        key: p,
+        title: TASK_PRIORITY_META[p].label,
+        depth: 0 as const,
+        caps: true,
+        icon: <PriorityIcon priority={p} className="size-3.5" />,
+        tasks: tasks.filter((t) => t.priority === p),
+        add: { priority: p },
+      }))
+      .filter((g) => g.tasks.length)
+  }
+
+  if (groupBy === "status") {
+    return [
+      { key: "InProgress", title: "In progress", icon: <CircleDot className="size-3.5 text-warning" />, tasks: tasks.filter((t) => t.status === "InProgress"), add: { status: "InProgress" } },
+      { key: "Todo", title: "To do", icon: <CircleDot className="size-3.5" />, tasks: tasks.filter((t) => t.status !== "InProgress"), add: {} },
+    ]
+      .filter((g) => g.tasks.length)
+      .map((g) => ({ ...g, depth: 0 as const, caps: true }))
+  }
+
+  // By date: Overdue · Today · Tomorrow · Next 7 days · Later · No date
+  const tomorrow = addDaysToKey(clock.today, 1)
+  const buckets: { key: string; title: string; icon: React.ReactNode; tone?: "danger"; add?: AddDefaults; tasks: TaskDTO[] }[] = [
+    { key: "overdue", title: BUCKET_LABELS.overdue, icon: <AlertCircle className="size-3.5" />, tone: "danger", tasks: [] },
+    { key: "today", title: "Today", icon: <Sun className="size-3.5" />, add: { scheduledDate: clock.today }, tasks: [] },
+    { key: "tomorrow", title: "Tomorrow", icon: <CalendarDays className="size-3.5" />, add: { scheduledDate: tomorrow }, tasks: [] },
+    { key: "week", title: "Next 7 days", icon: <CalendarDays className="size-3.5" />, tasks: [] },
+    { key: "later", title: "Later", icon: <CalendarClock className="size-3.5" />, tasks: [] },
+    { key: "someday", title: BUCKET_LABELS.someday, icon: <CalendarX2 className="size-3.5" />, add: {}, tasks: [] },
+  ]
+  const at = (k: string) => buckets.find((b) => b.key === k)!
+  for (const t of tasks) {
+    const b = bucketOf(t, clock)
+    if (b !== "upcoming") at(b === "done" ? "later" : b).tasks.push(t)
+    else at(daysBetween(clock.today, effectiveKey(t, clock)!) <= 7 ? "week" : "later").tasks.push(t)
+  }
+  return buckets.filter((b) => b.tasks.length).map((b) => ({ ...b, depth: 0 as const, caps: true }))
 }
 
 /** ↑/↓ (or j/k) move focus through rows; on wide screens the focused task opens in the side panel. */
@@ -417,7 +605,7 @@ function Board({ tasks }: { tasks: TaskDTO[] }) {
   const [dragOver, setDragOver] = useState<string | null>(null)
 
   return (
-    <div className="grid gap-4 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
       {COLUMNS.map((col) => {
         const items = tasks.filter((t) => t.status === col.status).sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority))
         const shown = col.status === "Completed" ? items.slice(0, 30) : items
@@ -449,6 +637,8 @@ function Board({ tasks }: { tasks: TaskDTO[] }) {
                 const key = effectiveKey(t, clock)
                 const overdue = bucketOf(t, clock) === "overdue"
                 const subs = t.subtasks ?? []
+                const parts = splitTitle(t.title)
+                const tags = parseTags(t.tags)
                 return (
                   <div
                     key={t.id}
@@ -459,18 +649,25 @@ function Board({ tasks }: { tasks: TaskDTO[] }) {
                   >
                     <div className="flex items-start gap-2">
                       <PriorityIcon priority={t.priority} className="mt-0.5" />
-                      <p className={cn("min-w-0 flex-1 text-[13px] leading-snug", t.status === "Completed" && "text-muted-foreground line-through")}>{splitTicket(t.title).code && <span className="mr-1.5 rounded bg-muted px-1 py-px font-mono text-[10px] text-muted-foreground">{splitTicket(t.title).code}</span>}{splitTicket(t.title).text}</p>
+                      <div className={cn("min-w-0 flex-1 text-[13px] leading-snug", t.status === "Completed" && "text-muted-foreground line-through")}>
+                        {parts.subject && <p className="font-semibold">{parts.subject}</p>}
+                        <p className={cn(parts.subject && "text-muted-foreground")}>{parts.text}</p>
+                      </div>
+                      {parts.code && <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{parts.code}</span>}
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-muted-foreground">
-                      {key && t.status !== "Completed" && <span className={cn(overdue && "font-medium text-danger")}>{dayLabel(key, clock.today)}</span>}
-                      {subs.length > 0 && <span className="tabular">{subs.filter((s) => s.status === "Completed").length}/{subs.length} subtasks</span>}
-                      {t.project && (
-                        <span className="inline-flex min-w-0 items-center gap-1">
-                          <span className={cn("size-1.5 rounded-full", projectDot(t.project.id))} />
-                          <span className="truncate">{t.project.name}</span>
-                        </span>
-                      )}
-                    </div>
+                    {(tags.length > 0 || key || subs.length > 0 || t.project) && (
+                      <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[11px] text-muted-foreground">
+                        {tags.length > 0 && <LabelList labels={tags} max={2} />}
+                        {key && t.status !== "Completed" && <span className={cn(overdue && "font-medium text-danger")}>{dayLabel(key, clock.today)}</span>}
+                        {subs.length > 0 && <span className="tabular">{subs.filter((s) => s.status === "Completed").length}/{subs.length} subtasks</span>}
+                        {t.project && (
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            <span className={cn("size-1.5 rounded-full", projectDot(t.project.id))} />
+                            <span className="truncate">{t.milestone?.title ?? t.project.name}</span>
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}

@@ -117,3 +117,52 @@ export function splitTicket(title: string): { code: string | null; text: string 
   const m = title.match(/^\s*\[([A-Za-z][A-Za-z0-9]*-?\d+[A-Za-z]?)\]\s*(.*)$/)
   return m ? { code: m[1].toUpperCase(), text: m[2] || title } : { code: null, text: title }
 }
+
+/**
+ * "[KN-010] Kassem Dental: Send the proposal" →
+ * { code: "KN-010", subject: "Kassem Dental", text: "Send the proposal" }.
+ * The subject is who/what the task is about; it reads first and bold.
+ */
+export function splitTitle(title: string): { code: string | null; subject: string | null; text: string } {
+  const { code, text } = splitTicket(title)
+  const m = text.match(/^([^:]{2,60}):\s+(\S.*)$/)
+  return m ? { code, subject: m[1].trim(), text: m[2].trim() } : { code, subject: null, text }
+}
+
+/** Labels are stored as a JSON array in `tags`; anything unreadable counts as none. */
+export function parseTags(raw: string | string[] | null | undefined): string[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw
+  try {
+    const v = JSON.parse(raw)
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "") : []
+  } catch {
+    return []
+  }
+}
+
+const LABEL_TONES: Record<string, string> = {
+  hot: "bg-danger-soft text-danger",
+  urgent: "bg-danger-soft text-danger",
+  warm: "bg-warning-soft text-warning",
+  cold: "bg-info-soft text-info",
+  lost: "bg-muted text-muted-foreground line-through decoration-muted-foreground/40",
+  lead: "bg-primary-soft text-primary",
+}
+const LABEL_PALETTE = [
+  "bg-violet-500/12 text-violet-700 dark:text-violet-300",
+  "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+  "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+  "bg-fuchsia-500/12 text-fuchsia-700 dark:text-fuchsia-300",
+  "bg-teal-500/12 text-teal-700 dark:text-teal-300",
+  "bg-orange-500/12 text-orange-700 dark:text-orange-300",
+]
+
+/** A stable colour per label; deal temperature (Hot/Warm/Cold) gets meaningful ones. */
+export function labelTone(label: string) {
+  const k = label.toLowerCase()
+  if (LABEL_TONES[k]) return LABEL_TONES[k]
+  let h = 0
+  for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0
+  return LABEL_PALETTE[Math.abs(h) % LABEL_PALETTE.length]
+}

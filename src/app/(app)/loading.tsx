@@ -7,7 +7,7 @@ export default function Loading() {
         <div className="h-8 w-56 animate-pulse rounded-lg bg-muted" />
       </div>
       <div className="h-40 animate-pulse rounded-2xl border border-border bg-card" />
-      <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <div className="h-72 animate-pulse rounded-2xl border border-border bg-card" />
         <div className="h-72 animate-pulse rounded-2xl border border-border bg-card" />
       </div>

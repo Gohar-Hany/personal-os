@@ -16,10 +16,15 @@ export function TaskInlineAdd({
   defaults,
   placeholder = "Add a task",
   className,
+  autoFocus,
+  onCancel,
 }: {
-  defaults?: { scheduledDate?: string; projectId?: string; milestoneId?: string }
+  defaults?: { scheduledDate?: string; projectId?: string; milestoneId?: string; priority?: string; status?: string }
   placeholder?: string
   className?: string
+  autoFocus?: boolean
+  /** Escape, or leaving the field empty. */
+  onCancel?: () => void
 }) {
   const { projects, refresh } = useApp()
   const toast = useToast()
@@ -38,7 +43,8 @@ export function TaskInlineAdd({
           scheduledDate: parsed.scheduledDate ?? defaults?.scheduledDate,
           startTime: parsed.startTime,
           endTime: parsed.endTime,
-          priority: parsed.priority,
+          priority: parsed.priority ?? defaults?.priority,
+          status: defaults?.status,
           projectId: parsed.projectId ?? defaults?.projectId,
           milestoneId: parsed.projectId && parsed.projectId !== defaults?.projectId ? null : defaults?.milestoneId,
         },
@@ -58,6 +64,10 @@ export function TaskInlineAdd({
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
+        autoFocus={autoFocus}
+        onKeyDown={(e) => e.key === "Escape" && onCancel?.()}
+        // Close after the click that moved focus has landed, so the list doesn't shift under it
+        onBlur={() => !text.trim() && onCancel && setTimeout(onCancel, 200)}
         placeholder={placeholder}
         aria-label={placeholder}
         className="h-7 min-w-0 flex-1 bg-transparent text-base sm:text-sm outline-none placeholder:text-muted-foreground"

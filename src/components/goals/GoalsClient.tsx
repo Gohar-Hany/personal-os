@@ -103,7 +103,7 @@ export function GoalsClient({ goals: serverGoals }: { goals: GoalDTO[] }) {
           />
         </Card>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
           {visible.map((g) => (
             <GoalCard key={g.id} goal={g} onUpdate={update} onEdit={() => setDialog(g)} onDelete={() => remove(g)} />
           ))}

@@ -7,7 +7,7 @@ import {
 import { cn } from "@/lib/utils"
 import { formatTime12 } from "@/lib/dates"
 import { addDaysToKey, weekStartKey } from "@/lib/zone"
-import { bucketOf, dayLabel, effectiveKey, isDeadlineSoon, keyOf, splitTicket } from "@/lib/tasks/taskLogic"
+import { bucketOf, dayLabel, effectiveKey, isDeadlineSoon, keyOf, parseTags, splitTitle } from "@/lib/tasks/taskLogic"
 import { TASK_PRIORITY_META } from "@/lib/constants"
 import { DatePicker } from "@/components/ui/datepicker"
 import { Menu, type MenuItem } from "@/components/ui/menu"
@@ -15,6 +15,7 @@ import { useApp, useClock } from "@/components/app/AppProvider"
 import { useTaskActions } from "@/components/tasks/useTasks"
 import { useSubtasks } from "@/components/tasks/useSubtasks"
 import { PriorityIcon, StatusCheck } from "@/components/tasks/TaskIcons"
+import { LabelList } from "@/components/tasks/TaskLabels"
 import { useToast } from "@/components/ui/toast"
 import { haptic } from "@/lib/hooks"
 import type { SubtaskDTO, TaskDTO } from "@/types"
@@ -28,15 +29,49 @@ export function projectDot(id: string) {
   return PROJECT_DOTS[Math.abs(h) % PROJECT_DOTS.length]
 }
 
+/** "Kassem Dental · Send the proposal": who/what first in bold, then the action. No ticket code. */
+export function TaskTitle({ title, done, className }: { title: string; done?: boolean; className?: string }) {
+  const parts = splitTitle(title)
+  return (
+    <span className={cn("min-w-0 truncate", done && "text-muted-foreground line-through decoration-muted-foreground/50", className)}>
+      {parts.subject && (
+        <>
+          <span className={cn("font-medium", !done && "text-foreground")}>{parts.subject}</span>
+          <span className="px-1.5 text-muted-foreground/60">·</span>
+        </>
+      )}
+      <span className={cn(!done && (parts.subject ? "text-foreground/75" : "text-foreground"))}>{parts.text}</span>
+    </span>
+  )
+}
+
 /**
- * One task. Desktop: a single dense line with aligned columns (project, date).
- * Phone: two comfortable lines; swipe right = done, left = tomorrow.
+ * Column widths for the table layout. The list is an `@container/list`, so columns
+ * appear as the list gets wider (not the window): opening the side panel hides
+ * the least important ones instead of squeezing titles.
+ */
+export const TASK_COLS = {
+  code: "hidden w-[5.75rem] shrink-0 @3xl/list:block",
+  labels: "hidden w-52 shrink-0 @4xl/list:flex",
+  priority: "hidden w-[5.5rem] shrink-0 @xl/list:flex",
+  date: "flex w-24 shrink-0",
+  deadline: "hidden w-24 shrink-0 @3xl/list:flex",
+  menu: "w-7 shrink-0",
+}
+
+/**
+ * One task.
+ * Desktop: a single dense line; with `table`, aligned columns (labels, priority, dates).
+ * Phone: who/what in bold, the action under it, then one line of details;
+ * swipe right = done, left = tomorrow, press and hold = actions.
  * Subtasks expand in place. Click the row to open details.
  */
 export function TaskRow({
   task,
   showProject = true,
   showDate = true,
+  table,
+  codeColumn,
   selected,
   onOpen,
   className,
@@ -44,6 +79,10 @@ export function TaskRow({
   task: TaskDTO
   showProject?: boolean
   showDate?: boolean
+  /** Desktop table layout with columns (Tasks page). */
+  table?: boolean
+  /** Table only: ticket codes get their own column so titles line up. */
+  codeColumn?: boolean
   /** Highlighted as the one shown in the side panel. */
   selected?: boolean
   /** Defaults to the global task sheet. */
@@ -79,16 +118,21 @@ export function TaskRow({
   const done = task.status === "Completed"
   const bucket = bucketOf(task, clock)
   const key = effectiveKey(task, clock)
+  const schedKey = keyOf(task.scheduledDate, clock)
   const dueKey = keyOf(task.dueDate, clock)
   const subs = task.subtasks ?? []
   const subsDone = subs.filter((s) => s.status === "Completed").length
   const showDateChip = showDate && key && !done && !(bucket === "today" && !task.startTime)
-  const ticket = splitTicket(task.title)
+  const parts = splitTitle(task.title)
+  const labels = parseTags(task.tags)
   const mobilePriority = task.priority === "High" || task.priority === "Critical"
+  const dueSoon = isDeadlineSoon(task, clock)
+  const struck = "text-muted-foreground line-through decoration-muted-foreground/50"
 
-  const codeChip = ticket.code ? (
-    <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10.5px] font-medium tracking-tight text-muted-foreground">{ticket.code}</span>
+  const codeChip = parts.code ? (
+    <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 font-mono text-[10.5px] font-medium tracking-tight text-muted-foreground">{parts.code}</span>
   ) : null
+
 
   const subtaskPill = (
     <button
@@ -134,7 +178,7 @@ export function TaskRow({
         bucket === "overdue" ? "font-medium text-danger" : bucket === "today" ? "font-medium text-primary" : "text-muted-foreground",
       )}
     >
-      {bucket === "overdue" ? <CalendarDays /> : task.startTime ? <Clock /> : <CalendarDays />}
+      {task.startTime ? <Clock /> : <CalendarDays />}
       {bucket !== "today" && dayLabel(key!, clock.today)}
       {task.startTime && <span>{bucket !== "today" && " · "}{formatTime12(task.startTime)}{task.endTime && `–${formatTime12(task.endTime)}`}</span>}
     </span>
@@ -142,7 +186,7 @@ export function TaskRow({
 
   const deadlineChip =
     dueKey && task.scheduledDate && !done ? (
-      <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", isDeadlineSoon(task, clock) ? "font-medium text-danger" : "text-muted-foreground")}>
+      <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", dueSoon ? "font-medium text-danger" : "text-muted-foreground")}>
         <Hourglass /> Due {dayLabel(dueKey, clock.today)}
       </span>
     ) : null
@@ -152,6 +196,77 @@ export function TaskRow({
       <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground">
         <span className={cn("size-2 shrink-0 rounded-full", projectDot(task.project.id))} />
         <span className="truncate">{task.project.name}</span>
+      </span>
+    ) : null
+
+  const priorityMenu = (withLabel: boolean) => (
+    <Menu
+      label="Priority"
+      trigger={
+        <button
+          type="button"
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`Priority: ${TASK_PRIORITY_META[task.priority]?.label}. Change`}
+          className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-md hover:bg-muted", withLabel ? "-mx-1.5 -my-1 px-1.5 py-1" : "-m-1 p-1")}
+        >
+          <PriorityIcon priority={task.priority} className={cn(done && "opacity-40")} />
+          {withLabel && (
+            <span className={cn("text-xs", task.priority === "Critical" ? "font-medium text-danger" : "text-muted-foreground")}>{TASK_PRIORITY_META[task.priority]?.label}</span>
+          )}
+        </button>
+      }
+      align="start"
+      items={["Critical", "High", "Medium", "Low"].map((pr) => ({
+        label: TASK_PRIORITY_META[pr].label,
+        icon: <PriorityIcon priority={pr} />,
+        hint: pr === task.priority ? "✓" : undefined,
+        onSelect: () => actions.update(task, { priority: pr }),
+      }))}
+    />
+  )
+
+  /** A date you can click to change (desktop). Empty cells show a hint on hover. */
+  const dateCell = (value: string | null, onChange: (v: string | null) => void, display: React.ReactNode, empty: string, title: string) => (
+    <DatePicker
+      value={value ?? ""}
+      onChange={(v) => onChange(v || null)}
+      title={title}
+      trigger={
+        <button type="button" onClick={(e) => e.stopPropagation()} aria-label={title} className="-mx-1.5 -my-1 max-w-full cursor-pointer rounded-md px-1.5 py-1 hover:bg-muted">
+          {display ?? (
+            <span className="inline-flex items-center gap-1 text-muted-foreground/0 group-hover:text-muted-foreground">
+              <CalendarDays /> {done ? "" : empty}
+            </span>
+          )}
+        </button>
+      }
+    />
+  )
+
+  const schedCell =
+    schedKey && !done ? (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 whitespace-nowrap tabular",
+          schedKey < clock.today ? "font-medium text-danger" : schedKey === clock.today ? "font-medium text-primary" : "text-foreground/80",
+        )}
+      >
+        {task.startTime ? <Clock /> : <CalendarDays />}
+        {dayLabel(schedKey, clock.today)}
+        {task.startTime && <span className="text-muted-foreground">{formatTime12(task.startTime)}</span>}
+      </span>
+    ) : null
+
+  const dueCell =
+    dueKey && !done ? (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 whitespace-nowrap tabular",
+          dueKey < clock.today ? "font-medium text-danger" : dueSoon ? "font-medium text-warning" : "text-muted-foreground",
+        )}
+      >
+        <Hourglass />
+        {dayLabel(dueKey, clock.today)}
       </span>
     ) : null
 
@@ -184,6 +299,7 @@ export function TaskRow({
           }}
           className={cn(
             "group relative flex cursor-pointer touch-pan-y items-start gap-3 bg-card px-4 py-3 outline-none sm:items-center sm:py-2",
+            table && "sm:min-h-11",
             "hover:bg-subtle focus-visible:bg-subtle active:bg-subtle",
             selected && "bg-primary-soft/60 hover:bg-primary-soft/70 before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-r-full before:bg-primary",
             swipe.dragging ? "" : "transition-[transform,background-color] duration-150",
@@ -191,91 +307,71 @@ export function TaskRow({
         >
           <StatusCheck status={task.status} onToggle={() => actions.toggle(task)} label={done ? "Mark as not done" : "Complete task"} className="mt-px sm:mt-0" />
 
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              {/* Desktop: priority (click to change) and code sit before the title. On phones they move to the details line so every title starts at the same edge. */}
-              <span className="hidden sm:flex">
-                <Menu
-                  label="Priority"
-                  trigger={
-                    <button type="button" onClick={(e) => e.stopPropagation()} aria-label={`Priority: ${TASK_PRIORITY_META[task.priority]?.label}. Change`} className="-m-1 cursor-pointer rounded p-1 hover:bg-muted">
-                      <PriorityIcon priority={task.priority} className={cn(done && "opacity-40")} />
-                    </button>
-                  }
-                  align="start"
-                  items={["Critical", "High", "Medium", "Low"].map((pr) => ({
-                    label: TASK_PRIORITY_META[pr].label,
-                    icon: <PriorityIcon priority={pr} />,
-                    hint: pr === task.priority ? "✓" : undefined,
-                    onSelect: () => actions.update(task, { priority: pr }),
-                  }))}
-                />
-              </span>
-              {ticket.code && <span className="hidden sm:inline-flex">{codeChip}</span>}
-              <span
-                className={cn(
-                  "min-w-0 text-[15px] leading-snug sm:truncate sm:text-sm",
-                  done ? "text-muted-foreground line-through decoration-muted-foreground/50" : "text-foreground",
-                )}
-              >
-                {ticket.text}
-              </span>
-              {task.status === "InProgress" && (
-                <span className="hidden shrink-0 items-center gap-1 rounded-md bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning sm:inline-flex">
-                  <CircleDot className="size-3" /> In progress
-                </span>
-              )}
-              {subs.length > 0 && <span className="hidden sm:inline-flex">{subtaskPill}</span>}
-            </div>
-
-            {/* Phone: one tidy details line under the title */}
-            {(mobilePriority || ticket.code || dateChip || deadlineChip || projectChip || subs.length > 0 || task.status === "InProgress") && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs [&_svg]:size-3 sm:hidden">
+          {/* ── Phone ── */}
+          <div className="min-w-0 flex-1 sm:hidden">
+            {parts.subject ? (
+              <>
+                <p className={cn("text-[15px] leading-snug font-semibold", done && struck)}>{parts.subject}</p>
+                <p className={cn("mt-0.5 line-clamp-2 text-sm leading-snug", done ? struck : "text-foreground/70")}>{parts.text}</p>
+              </>
+            ) : (
+              <p className={cn("text-[15px] leading-snug", done && struck)}>{parts.text}</p>
+            )}
+            {(mobilePriority || parts.code || dateChip || deadlineChip || projectChip || subs.length > 0 || labels.length > 0 || task.status === "InProgress") && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs [&_svg]:size-3">
                 {mobilePriority && <PriorityIcon priority={task.priority} className={cn("size-3.5", done && "opacity-40")} />}
                 {task.status === "InProgress" && <span className="font-medium text-warning">In progress</span>}
-                {ticket.code && codeChip}
+                {codeChip}
                 {dateChip}
                 {deadlineChip}
+                {labels.length > 0 && <LabelList labels={labels} max={2} />}
                 {projectChip}
                 {subs.length > 0 && subtaskPill}
               </div>
             )}
           </div>
 
-          {/* Desktop: aligned columns */}
-          <div className="hidden min-w-0 shrink-0 items-center gap-4 text-xs [&_svg]:size-3.5 sm:flex sm:max-w-[55%]">
-            {deadlineChip && <span className="hidden shrink-0 xl:inline-flex">{deadlineChip}</span>}
-            {showProject && <span className="hidden min-w-0 max-w-40 justify-end md:flex">{projectChip}</span>}
-            {showDate && (
-              <span className="flex min-w-[5.5rem] shrink-0 justify-end">
-                <DatePicker
-                  value={keyOf(task.scheduledDate, clock) ?? ""}
-                  onChange={(v) => actions.reschedule(task, v)}
-                  title="Reschedule"
-                  trigger={
-                    <button
-                      type="button"
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label="Reschedule"
-                      className="-mx-1.5 -my-1 cursor-pointer rounded-md px-1.5 py-1 hover:bg-muted"
-                    >
-                      {dateChip ?? (
-                        <span className="inline-flex items-center gap-1 text-muted-foreground/0 group-hover:text-muted-foreground">
-                          <CalendarDays /> {done ? "" : bucket === "today" ? "Today" : "Set date"}
-                        </span>
-                      )}
-                    </button>
-                  }
-                />
+          {/* ── Desktop ── */}
+          {table && codeColumn && <span className={cn(TASK_COLS.code, "truncate font-mono text-[11px] text-muted-foreground max-sm:hidden")}>{parts.code}</span>}
+          <div className="hidden min-w-0 flex-1 items-center gap-2 sm:flex">
+            {!table && priorityMenu(false)}
+            {codeChip && <span className={cn("inline-flex shrink-0", table && codeColumn && "@3xl/list:hidden")}>{codeChip}</span>}
+            <TaskTitle title={task.title} done={done} className="text-sm" />
+            {task.status === "InProgress" && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning">
+                <CircleDot className="size-3" /> In progress
               </span>
             )}
+            {subs.length > 0 && subtaskPill}
           </div>
 
-          <span className="hidden sm:flex">
+          {table ? (
+            <div className="hidden shrink-0 items-center gap-3 text-xs sm:flex [&_svg]:size-3.5">
+              <span className={cn(TASK_COLS.labels, "min-w-0 overflow-hidden")}>
+                <LabelList labels={labels} />
+              </span>
+              <span className={TASK_COLS.priority}>{priorityMenu(true)}</span>
+              {showDate && <span className={TASK_COLS.date}>{dateCell(schedKey, (v) => actions.reschedule(task, v), schedCell, "Set date", "Do on")}</span>}
+              <span className={TASK_COLS.deadline}>{dateCell(dueKey, (v) => actions.update(task, { dueDate: v }), dueCell, "Deadline", "Deadline")}</span>
+            </div>
+          ) : (
+            <div className="hidden min-w-0 shrink-0 items-center gap-4 text-xs [&_svg]:size-3.5 sm:flex sm:max-w-[55%]">
+              {labels.length > 0 && <LabelList labels={labels} max={2} className="hidden 2xl:flex" />}
+              {deadlineChip && <span className="hidden shrink-0 xl:inline-flex">{deadlineChip}</span>}
+              {showProject && <span className="hidden min-w-0 max-w-40 justify-end md:flex">{projectChip}</span>}
+              {showDate && (
+                <span className="flex min-w-[5.5rem] shrink-0 justify-end">
+                  {dateCell(schedKey, (v) => actions.reschedule(task, v), dateChip, bucket === "today" ? "Today" : "Set date", "Reschedule")}
+                </span>
+              )}
+            </div>
+          )}
+
+          <span className={cn("hidden sm:flex", table && TASK_COLS.menu)}>
             <Menu label={task.title} className="-my-0.5 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100" items={menuItems} />
           </span>
           {/* Phones: press and hold the row for actions */}
-          <Menu label={ticket.text} sheetOnly open={sheetOpen} onOpenChange={setSheetOpen} items={menuItems} />
+          <Menu label={parts.subject ?? parts.text} sheetOnly open={sheetOpen} onOpenChange={setSheetOpen} items={menuItems} />
         </div>
       </div>
 

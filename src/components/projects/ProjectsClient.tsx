@@ -120,7 +120,7 @@ export function ProjectsClient({ projects: serverProjects }: { projects: Project
               </button>
               {!collapsed &&
                 (view === "cards" ? (
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                     {s.items.map((p) => <ProjectCard key={p.id} project={p} onEdit={() => setDialog(p)} actions={actions} />)}
                   </div>
                 ) : (

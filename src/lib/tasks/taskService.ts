@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { BadRequest } from "@/lib/http"
 import { userClock } from "@/lib/userTime"
 import { compareTasks } from "@/lib/tasks/taskLogic"
 import type { TaskStatus, TaskPriority } from "@/types"
@@ -83,6 +84,7 @@ export async function createTask(data: {
   endTime?: string | null
   estimatedMinutes?: number | null
   notes?: string | null
+  tags?: string | null
 }) {
   // A milestone implies its project
   if (data.milestoneId && !data.projectId) {
@@ -119,6 +121,7 @@ export async function updateTask(id: string, data: Partial<{
   endTime: string | null
   estimatedMinutes: number | null
   notes: string | null
+  tags: string | null
   order: number
 }>) {
   const patch: Record<string, unknown> = { ...data }
@@ -136,4 +139,32 @@ export async function updateTask(id: string, data: Partial<{
 
 export async function deleteTask(id: string) {
   return prisma.task.delete({ where: { id } })
+}
+
+/**
+ * Request body → stored labels. Accepts an array of strings (or a JSON string of one).
+ * undefined = leave as is; empty = clear. Trimmed, de-duplicated (case-insensitive), max 12.
+ */
+export function tagsInput(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined
+  if (v === null) return null
+  let list: unknown = v
+  if (typeof v === "string") {
+    try {
+      list = JSON.parse(v)
+    } catch {
+      list = v.split(",")
+    }
+  }
+  if (!Array.isArray(list)) throw new BadRequest("tags must be a list")
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const x of list) {
+    if (typeof x !== "string") continue
+    const t = x.trim().slice(0, 32)
+    if (!t || seen.has(t.toLowerCase())) continue
+    seen.add(t.toLowerCase())
+    out.push(t)
+  }
+  return out.length ? JSON.stringify(out.slice(0, 12)) : null
 }

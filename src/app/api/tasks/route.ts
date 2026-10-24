@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server"
-import { createTask, getBacklogTasks, getTasks } from "@/lib/tasks/taskService"
+import { createTask, getBacklogTasks, getTasks, tagsInput } from "@/lib/tasks/taskService"
 import { route, requiredString, optionalString, optionalNumber, oneOf } from "@/lib/http"
 import { parseDateInput } from "@/lib/dates"
 import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/constants"
@@ -26,5 +26,6 @@ export const POST = route(async (req: NextRequest) => {
     startTime: optionalString(b.startTime),
     endTime: optionalString(b.endTime),
     estimatedMinutes: optionalNumber(b.estimatedMinutes),
+    tags: tagsInput(b.tags) ?? undefined,
   })
 })
