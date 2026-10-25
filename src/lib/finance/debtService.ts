@@ -80,7 +80,7 @@ export async function settleDebt(id: string, { accountId, date }: { accountId?: 
               data: { type: "Transfer", amount: debt.amount, currency: account.currency, category: OWED_CATEGORY, toAccountId: accountId, date: when, description: `${debt.person} paid back · ${what(debt)}` },
             })
           : await tx.transaction.create({
-              data: { type: "Expense", amount: debt.amount, currency: account.currency, category: debt.category || "Other", accountId, date: when, description: `${what(debt)} (paid ${debt.person})` },
+              data: { type: "Expense", amount: debt.amount, currency: account.currency, category: debt.category || "Other", accountId, date: when, description: debt.description || null },
             })
       settleTransactionId = t.id
     }

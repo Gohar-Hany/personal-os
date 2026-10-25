@@ -197,7 +197,8 @@ export async function deleteTransaction(id: string) {
         await tx.debt.update({ where: { id: d.id }, data: { settledAt: null, settleTransactionId: null } })
       }
     }
-    return tx.transaction.delete({ where: { id } })
+    await tx.transaction.deleteMany({ where: { id } })
+    return { ok: true }
   })
 }
 

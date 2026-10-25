@@ -93,6 +93,8 @@ export function FinanceClient({
   // Money owed either way, shown right on the transactions
   const debtList = useMemo(() => debts?.all ?? [], [debts])
   const debtByTx = useMemo(() => new Map(debtList.filter((d) => d.transactionId).map((d) => [d.transactionId!, d])), [debtList])
+  // Transactions that settled a debt: a repayment to me, or my payment to someone
+  const debtBySettle = useMemo(() => new Map(debtList.filter((d) => d.settleTransactionId).map((d) => [d.settleTransactionId!, d])), [debtList])
   const openDebts = debtList.filter((d) => !d.settledAt)
   const pending = typeFilter === "Pending"
 
@@ -370,6 +372,12 @@ export function FinanceClient({
                       const other = t.category === "Gold" ? "Gold" : t.category === "Owed to me" ? "Owed" : "?"
                       const where = t.type === "Transfer" ? `${t.fromAccount?.name ?? other} → ${t.toAccount?.name ?? other}` : t.account?.name
                       const debt = debtByTx.get(t.id)
+                      const settles = debtBySettle.get(t.id)
+                      const repaid = settles?.direction === "they_owe" // money coming back to me
+                      const rowIcon = repaid ? <Undo2 /> : icon
+                      const rowStyle = repaid ? "bg-success-soft text-success" : style.className
+                      const title = repaid ? `${settles!.person} paid you back` : adjustment ? t.description || "Balance correction" : t.description || t.category || t.type
+                      const sub = repaid ? [settles!.description || settles!.category, t.toAccount?.name].filter(Boolean).join(" · ") : null
                       return (
                         <div
                           key={t.id}
@@ -379,11 +387,11 @@ export function FinanceClient({
                           onKeyDown={(e) => e.key === "Enter" && setEditingTx(t)}
                           className="group flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:bg-subtle active:bg-muted"
                         >
-                          <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-[18px]", style.className)}>{icon}</span>
+                          <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl [&_svg]:size-[18px]", rowStyle)}>{rowIcon}</span>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{adjustment ? t.description || "Balance correction" : t.description || t.category || t.type}</p>
+                            <p className="truncate text-sm font-medium">{title}</p>
                             <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
-                              <span>{[!adjustment && t.description ? t.category : null, where].filter(Boolean).join(" · ")}</span>
+                              <span>{sub ?? [!adjustment && t.description ? t.category : null, where].filter(Boolean).join(" · ")}</span>
                               {t.type !== "Transfer" && t.balanceBefore != null && t.balanceAfter != null && (
                                 <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground/85">
                                   · <span>{formatCurrency(t.balanceBefore, t.currency || cur, { compact: true })}</span>
@@ -391,12 +399,17 @@ export function FinanceClient({
                                   <span className="font-semibold text-foreground/90">{formatCurrency(t.balanceAfter, t.currency || cur, { compact: true })}</span>
                                 </span>
                               )}
-                              {t.type === "Transfer" && t.fromBalanceBefore != null && t.fromBalanceAfter != null && (
+                              {t.type === "Transfer" && !repaid && t.fromBalanceBefore != null && t.fromBalanceAfter != null && (
                                 <span className="inline-flex items-center gap-1 font-mono text-[11px] text-muted-foreground/85">
                                   · <span>({formatCurrency(t.fromBalanceBefore, t.currency || cur, { compact: true })} → {formatCurrency(t.fromBalanceAfter, t.currency || cur, { compact: true })})</span>
                                 </span>
                               )}
                             </div>
+                            {settles?.direction === "i_owe" && (
+                              <div className="mt-1.5 text-xs">
+                                <span className="inline-flex items-center gap-1 font-medium text-success"><Check className="size-3.5" /> Paid back to {settles.person}</span>
+                              </div>
+                            )}
                             {debt?.direction === "they_owe" && (
                               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
                                 {debt.settledAt ? (
@@ -419,8 +432,8 @@ export function FinanceClient({
                               </div>
                             )}
                           </div>
-                          <span className={cn("text-sm font-semibold tabular", t.type === "Income" && !adjustment && "text-success", debt?.direction === "they_owe" && "text-muted-foreground")}>
-                            {style.sign}
+                          <span className={cn("text-sm font-semibold tabular", ((t.type === "Income" && !adjustment) || repaid) && "text-success", debt?.direction === "they_owe" && "text-muted-foreground")}>
+                            {repaid ? "+" : style.sign}
                             {formatCurrency(t.amount, t.currency || cur)}
                           </span>
                           <Menu
